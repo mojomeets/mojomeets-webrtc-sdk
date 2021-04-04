@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "test": "",
     "build": "tsc",
     "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
     "lint": "tslint -p tsconfig.json",
@@ -13,9 +14,13 @@
     "version": "npm run format && git add -A src",
     "postversion": "git push && git push --tags"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mojomeets/mojomeets-webrtc-sdk"
+  },
   "files": ["lib/**/*"],
   "keywords": [],
-  "author": "",
+  "author": "mojomeets",
   "license": "ISC",
   "devDependencies": {
     "prettier": "^2.2.1",
