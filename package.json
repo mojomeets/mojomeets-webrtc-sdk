@@ -18,7 +18,9 @@
     "type": "git",
     "url": "git+https://github.com/mojomeets/mojomeets-webrtc-sdk"
   },
-  "files": ["lib/**/*"],
+  "files": [
+    "lib/**/*"
+  ],
   "keywords": [],
   "author": "mojomeets",
   "license": "ISC",
