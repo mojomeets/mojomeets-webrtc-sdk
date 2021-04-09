@@ -6,7 +6,7 @@ import {IClient} from "./interfaces/IClient";
 let client: IClient;
 
 export const startClient = async (event:string, credentials: ICredentials, localView?: HTMLDivElement, remoteView?: HTMLDivElement):Promise<T> => {
-    
+
     if(event==="create-client"){
 
         // Create KVS client
@@ -23,11 +23,14 @@ export const startClient = async (event:string, credentials: ICredentials, local
                 ChannelName: credentials.channelName,
             })
             .promise();
-        // Can cause error 
+        // Can cause error
         const channelARN = describeSignalingChannelResponse.ChannelInfo!.ChannelARN;
         console.log('Channel ARN is: ', channelARN);
 
         // Get signaling channel endpoints
+        if(!channelARN){
+            return;
+        }
         const getSignalingChannelEndpointResponse = await kinesisVideoClient
             .getSignalingChannelEndpoint({
                 ChannelARN: channelARN,
@@ -37,6 +40,8 @@ export const startClient = async (event:string, credentials: ICredentials, local
                 },
             })
             .promise();
+        if(!getSignalingChannelEndpointResponse.ResourceEndpointList)
+            return
         const endpointsByProtocol = getSignalingChannelEndpointResponse.ResourceEndpointList.reduce((endpoints:any, endpoint:any) => {
             endpoints[endpoint.Protocol] = endpoint.ResourceEndpoint;
             return endpoints;
@@ -72,7 +77,7 @@ export const startClient = async (event:string, credentials: ICredentials, local
             })
             .promise();
         const iceServers = [
-            { urls: `stun:stun.kinesisvideo.${credentials.region}.amazonaws.com:443` }  
+            { urls: `stun:stun.kinesisvideo.${credentials.region}.amazonaws.com:443` }
         ];
         getIceServerConfigResponse.IceServerList.forEach((iceServer: any) =>
             iceServers.push({
@@ -96,7 +101,7 @@ export const startClient = async (event:string, credentials: ICredentials, local
         client.signalingClient.on('close', () => {
             console.log('[MASTER] Disconnected from signaling channel');
         });
-    
+
         client.signalingClient.on('error', () => {
             console.error('[MASTER] Signaling client error');
         });
@@ -110,8 +115,8 @@ export const startClient = async (event:string, credentials: ICredentials, local
             audio: credentials.sendAudio,
         };
 
-        // Get a stream from the webcam and display it in the local view. 
-        // If no video/audio needed, no need to request for the sources. 
+        // Get a stream from the webcam and display it in the local view.
+        // If no video/audio needed, no need to request for the sources.
         // Otherwise, the browser will throw an error saying that either video or audio has to be enabled.
         if (credentials.sendVideo || credentials.sendAudio) {
             try {
@@ -130,11 +135,11 @@ export const startClient = async (event:string, credentials: ICredentials, local
 
         client.signalingClient.on('sdpOffer', async (offer:any, remoteClientId:any):Promise<void> => {
             console.log('[MASTER] Received SDP offer from client: ' + remoteClientId);
-    
+
             // Create a new peer connection using the offer from the given client
             const peerConnection = new RTCPeerConnection(configuration);
             client.peerConnectionByClientId[remoteClientId] = peerConnection;
-    
+
             // For data messages
             // if (credentials.openDataChannel) {
             //     client.dataChannelByClientId[remoteClientId] = peerConnection.createDataChannel('kvsDataChannel');
@@ -142,17 +147,17 @@ export const startClient = async (event:string, credentials: ICredentials, local
             //         event.channel.onmessage = onRemoteDataMessage;
             //     };
             // }
-    
+
             // Poll for connection stats
             if (!client.peerConnectionStatsInterval) {
                 client.peerConnectionStatsInterval = setInterval(() => peerConnection.getStats());
             }
-    
+
             // Send any ICE candidates to the other peer
             peerConnection.addEventListener('icecandidate', ({ candidate }) => {
                 if (candidate) {
                     console.log('[MASTER] Generated ICE candidate for client: ' + remoteClientId);
-    
+
                     // Sending ICE candidate
                     console.log('[MASTER] Sending ICE candidate to client: ' + remoteClientId);
                     client.signalingClient.sendIceCandidate(candidate, remoteClientId);
@@ -160,7 +165,7 @@ export const startClient = async (event:string, credentials: ICredentials, local
                     console.log('[MASTER] All ICE candidates have been generated for client: ' + remoteClientId);
                 }
             });
-     
+
             // As viewer's video data is received, add them to the remote view
             peerConnection.addEventListener('track', event => {
                 console.log('[MASTER] Received remote track from client: ' + remoteClientId);
@@ -169,13 +174,13 @@ export const startClient = async (event:string, credentials: ICredentials, local
                 }
                 remoteView!.srcObject = event.streams[0];
             });
-    
-            // This is responsible for sending video tracks 
+
+            // This is responsible for sending video tracks
             if (client.localStream) {
                 client.localStream.getTracks().forEach(track => peerConnection.addTrack(track, client.localStream));
             }
             await peerConnection.setRemoteDescription(offer);
-    
+
             // Create an SDP answer to send back to the client
             console.log('[MASTER] Creating SDP answer for client: ' + remoteClientId);
             await peerConnection.setLocalDescription(
@@ -184,7 +189,7 @@ export const startClient = async (event:string, credentials: ICredentials, local
                     offerToReceiveVideo: true,
                 }),
             );
-    
+
             // When trickle ICE is enabled, send the answer now and then send ICE candidates as they are generated. Otherwise wait on the ICE candidates.
             console.log('[MASTER] Sending SDP answer to client: ' + remoteClientId);
             client.signalingClient.sendSdpAnswer(peerConnection.localDescription, remoteClientId);
@@ -195,7 +200,7 @@ export const startClient = async (event:string, credentials: ICredentials, local
     else if(event === "subscribe"){
         client.signalingClient.on('iceCandidate', async (candidate:any, remoteClientId:any):Promise<T> => {
             console.log('[MASTER] Received ICE candidate from client: ' + remoteClientId);
-    
+
             // Add the ICE candidate received from the client to the peer connection
             const peerConnection = client.peerConnectionByClientId[remoteClientId];
             peerConnection.addIceCandidate(candidate);
