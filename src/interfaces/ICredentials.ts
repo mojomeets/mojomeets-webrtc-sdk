@@ -1,13 +1,18 @@
 export interface ICredentials{
-    region: string,
-    channelName: string,
-    clientId: string,
-    sendVideo: HTMLInputElement,
-    sendAudio: HTMLInputElement,
-    openDataChannel: HTMLInputElement,
-    widescreen: HTMLInputElement,
-    fullscreen: HTMLInputElement,
-    accessKeyId: string,
-    secretAccessKey: string,
-    role: string
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken?: string;
+    getPromise?(): Promise<void>;
+    /////
+    channelName: string;
+    region: string;
+    clientId?: string;
+    systemClockOffset?: number;
+    role: 'MASTER' | 'VIEWER';
+    // True or False
+    sendVideo: HTMLInputElement;
+    sendAudio: HTMLInputElement;
+    openDataChannel: HTMLInputElement;
+    widescreen: HTMLInputElement;
+    fullscreen: HTMLInputElement;
 }
