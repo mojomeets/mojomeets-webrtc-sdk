@@ -12,6 +12,7 @@ export interface ICredentials{
     // True or False
     sendVideo: HTMLInputElement;
     sendAudio: HTMLInputElement;
+    shareScreen: HTMLInputElement;
     openDataChannel: HTMLInputElement;
     widescreen: HTMLInputElement;
     fullscreen: HTMLInputElement;
