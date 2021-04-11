@@ -212,7 +212,7 @@ export const startClient = async (credentials: ICredentials, localView?: HTMLDiv
         // }
 
         // Poll for connection stats
-        client.peerConnectionStatsInterval = setInterval(() => client.peerConnection.getStats());
+        client.peerConnectionStatsInterval = setInterval(() => viewer.peerConnection.getStats());
 
         client.signalingClient.on('open', async ():Promise<void> => {
             console.log('[VIEWER] Connected to signaling service');
