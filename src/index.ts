@@ -3,13 +3,13 @@ import * as AWS from "aws-sdk";
 import { ICredentials } from "./interfaces/ICredentials";
 import { IClient } from "./interfaces/IClient";
 
-let client: IClient;
+const client = {} as IClient;
 
 const attachVideo = (parent: HTMLDivElement | undefined, stream: MediaStream): void => {
-  const vidElement = document.createElement('video');
+  const vidElement = document.createElement("video");
   vidElement!.srcObject = stream;
-  parent?.appendChild(vidElement)
-}
+  parent?.appendChild(vidElement);
+};
 
 export const startClient = async (
   credentials: ICredentials,
@@ -135,7 +135,8 @@ export const startClient = async (
         // Storing the video stream from webcam
         client.localStream = await mediaDevices.getUserMedia(constraints);
       }
-      attachVideo(localView, client.localStream)
+      if (client.localStream)
+        attachVideo(localView, client.localStream);
     } catch (e) {
       console.log("Could not find webcam, data is not transmitted");
     }
@@ -188,12 +189,14 @@ export const startClient = async (
         // As viewer's video data is received, add them to the remote view
         peerConnection.addEventListener("track", (event) => {
           console.log("[MASTER] Received remote track from client: " + remoteClientId);
-          attachVideo(remoteView,event.streams[0])
+          attachVideo(remoteView, event.streams[0]);
         });
 
         // This is responsible for sending video tracks
         if (client.localStream) {
-          client.localStream.getTracks().forEach((track: any) => peerConnection.addTrack(track, client.localStream));
+          client.localStream.getTracks().forEach((track: any) => {
+            if (client.localStream) peerConnection.addTrack(track, client.localStream);
+          });
         }
         await peerConnection.setRemoteDescription(offer);
 
@@ -246,7 +249,9 @@ export const startClient = async (
         if (client.localStream) {
           client.localStream
             .getTracks()
-            .forEach((track: any) => client.peerConnection.addTrack(track, client.localStream));
+            .forEach((track: any) => {
+              if (client.localStream) client.peerConnection.addTrack(track, client.localStream);
+            });
         }
 
         // Create an SDP offer to send to the master
@@ -295,7 +300,8 @@ export const startClient = async (
     // As remote tracks are received, add them to the remote view
     client.peerConnection.addEventListener("track", (event) => {
       console.log("[VIEWER] Received remote track");
-      attachVideo(remoteView, client.remoteStream)
+      if (client.remoteStream)
+        attachVideo(remoteView, client.remoteStream);
     });
   }
 
@@ -357,10 +363,10 @@ export const stopClient = (credentials: ICredentials) => {
   }
 
   if (client.localView && client.localView.firstChild) {
-    client.localView.removeChild(client.localView.firstChild)
+    client.localView.removeChild(client.localView.firstChild);
   }
 
   if (client.remoteView && client.remoteView.firstChild) {
-    client.remoteView.removeChild(client.remoteView.firstChild)
+    client.remoteView.removeChild(client.remoteView.firstChild);
   }
 };

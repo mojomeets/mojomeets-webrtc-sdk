@@ -3,7 +3,7 @@ import { SignalingClient } from 'amazon-kinesis-video-streams-webrtc';
 export interface IMaster {
   signalingClient: SignalingClient;
   peerConnectionByClientId: RTCPeerConnection;
-  dataChannelByClientId: Object;
+  dataChannelByClientId: object;
   // This streams are videos
   localStream: any;
   remoteStreams: any[];
@@ -12,5 +12,5 @@ export interface IMaster {
   localView: HTMLDivElement;
   remoteView: HTMLDivElement;
   // ICE server configuration
-  iceServers: Object[];
+  iceServers: object[];
 }

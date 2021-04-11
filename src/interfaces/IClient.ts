@@ -4,19 +4,19 @@ export interface IClient {
   // Common
   signalingClient: SignalingClient;
   // This streams are videos
-  localStream: any;
+  localStream: MediaStream | null;
   peerConnectionStatsInterval: any;
   // Storing input video streams comming from the function
   localView: HTMLDivElement;
   remoteView: HTMLDivElement;
   // ICE server configuration
-  iceServers: Object[];
+  iceServers: object[];
   // Master
   peerConnectionByClientId: RTCPeerConnection[];
-  dataChannelByClientId: Object;
-  remoteStreams: any[];
+  dataChannelByClientId: object;
+  remoteStreams: MediaStream[];
   // Viewer
   peerConnection: RTCPeerConnection;
   dataChannel: any;
-  remoteStream: any;
+  remoteStream: MediaStream | null;
 }
