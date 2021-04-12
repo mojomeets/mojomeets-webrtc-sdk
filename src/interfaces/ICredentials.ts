@@ -10,10 +10,10 @@ export interface ICredentials {
   systemClockOffset?: number;
   role: 'MASTER' | 'VIEWER';
   // True or False
-  sendVideo: HTMLInputElement;
-  sendAudio: HTMLInputElement;
-  shareScreen: HTMLInputElement;
-  openDataChannel: HTMLInputElement;
-  widescreen: HTMLInputElement;
-  fullscreen: HTMLInputElement;
+  sendVideo: boolean;
+  sendAudio: boolean;
+  shareScreen: boolean;
+  openDataChannel: boolean;
+  widescreen: boolean;
+  fullscreen: boolean;
 }
