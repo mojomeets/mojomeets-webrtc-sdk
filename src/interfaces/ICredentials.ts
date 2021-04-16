@@ -8,7 +8,7 @@ export interface ICredentials {
   region: string;
   clientId?: string;
   systemClockOffset?: number;
-  role: 'MASTER' | 'VIEWER';
+  role: string;
   // True or False
   sendVideo: boolean;
   sendAudio: boolean;

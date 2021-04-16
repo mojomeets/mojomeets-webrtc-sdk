@@ -4,10 +4,12 @@ import { ICredentials } from "./interfaces/ICredentials";
 import { IClient } from "./interfaces/IClient";
 
 const client = {} as IClient;
+client.peerConnectionByClientId=[];
 
 const attachVideo = (parent: HTMLDivElement | undefined, stream: MediaStream): void => {
   const vidElement = document.createElement("video");
   vidElement!.srcObject = stream;
+  vidElement!.autoplay = true;
   parent?.appendChild(vidElement);
 };
 
