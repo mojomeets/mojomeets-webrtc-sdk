@@ -64,19 +64,36 @@ export const startClient = async (
   );
   console.log("Client Endpoints: ", endpointsByProtocol);
 
-  // Create Signaling Client
-  client.signalingClient = new KVSWebRTC.SignalingClient({
-    channelARN,
-    channelEndpoint: endpointsByProtocol.WSS,
-    role: credentials.role === "MASTER" ? KVSWebRTC.Role.MASTER : KVSWebRTC.Role.VIEWER,
-    region: credentials.region,
-    credentials: {
-      accessKeyId: credentials.accessKeyId,
-      secretAccessKey: credentials.secretAccessKey,
-      sessionToken: credentials.sessionToken
-    },
-    systemClockOffset: kinesisVideoClient.config.systemClockOffset
-  });
+  if(credentials.role === "MASTER"){
+    // Create Signaling Client
+    client.signalingClient = new KVSWebRTC.SignalingClient({
+      channelARN,
+      channelEndpoint: endpointsByProtocol.WSS,
+      role:KVSWebRTC.Role.MASTER,
+      region: credentials.region,
+      credentials: {
+        accessKeyId: credentials.accessKeyId,
+        secretAccessKey: credentials.secretAccessKey,
+        sessionToken: credentials.sessionToken
+      },
+      systemClockOffset: kinesisVideoClient.config.systemClockOffset
+    });
+  }else{
+    // Create Signaling Client
+    client.signalingClient = new KVSWebRTC.SignalingClient({
+      channelARN,
+      channelEndpoint: endpointsByProtocol.WSS,
+      clientId: credentials.clientId,
+      role:KVSWebRTC.Role.VIEWER,
+      region: credentials.region,
+      credentials: {
+        accessKeyId: credentials.accessKeyId,
+        secretAccessKey: credentials.secretAccessKey,
+        sessionToken: credentials.sessionToken
+      },
+      systemClockOffset: kinesisVideoClient.config.systemClockOffset
+    });
+  }
 
   // Get ICE server configuration
   const kinesisVideoSignalingChannelsClient = new AWS.KinesisVideoSignalingChannels({
