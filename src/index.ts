@@ -6,12 +6,21 @@ import { IClient } from "./interfaces/IClient";
 const client = {} as IClient;
 client.peerConnectionByClientId=[];
 
+var isStreamRecievedInViewer:boolean = false;
+
 const attachVideo = (parent: HTMLDivElement | undefined, stream: MediaStream): void => {
   const vidElement = document.createElement("video");
   vidElement!.srcObject = stream;
   vidElement!.autoplay = true;
   parent?.appendChild(vidElement);
 };
+
+const getRandomClientId = () => {
+  return Math.random()
+      .toString(36)
+      .substring(2)
+      .toUpperCase();
+}
 
 export const startClient = async (
   credentials: ICredentials,
@@ -83,7 +92,7 @@ export const startClient = async (
     client.signalingClient = new KVSWebRTC.SignalingClient({
       channelARN,
       channelEndpoint: endpointsByProtocol.WSS,
-      clientId: credentials.clientId,
+      clientId: getRandomClientId(),
       role:KVSWebRTC.Role.VIEWER,
       region: credentials.region,
       credentials: {
@@ -205,6 +214,7 @@ export const startClient = async (
           }
         });
 
+        ///////////////////////////////////// This is not working in test
         // As viewer's video data is received, add them to the remote view
         peerConnection.addEventListener("track", (event) => {
           console.log("[MASTER] Received remote track from client: " + remoteClientId);
@@ -319,6 +329,19 @@ export const startClient = async (
     // As remote tracks are received, add them to the remote view
     client.peerConnection.addEventListener("track", (event) => {
       console.log("[VIEWER] Received remote track");
+      
+      // If the video data is already present
+      // if (remoteView!.srcObject) {
+      //     return;
+      // }
+      if(isStreamRecievedInViewer){
+        return;
+      }
+      
+      client.remoteStream = event.streams[0];
+      isStreamRecievedInViewer = true;
+      // remoteView.srcObject = viewer.remoteStream;
+
       if (client.remoteStream)
         attachVideo(remoteView, client.remoteStream);
     });
