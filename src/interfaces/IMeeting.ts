@@ -1,4 +1,4 @@
 export interface IMeeting{
-    meetingResponse:Object;
-    attendeeResponse:Object;
+    meetingResponse:string;
+    attendeeResponse:string;
 }
