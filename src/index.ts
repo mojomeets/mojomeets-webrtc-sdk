@@ -1,399 +1,499 @@
-import * as KVSWebRTC from 'amazon-kinesis-video-streams-webrtc';
-import * as AWS from 'aws-sdk';
-import { ICredentials } from './interfaces/ICredentials';
-import { IClient } from './interfaces/IClient';
+import {
+    ConsoleLogger,
+    DefaultDeviceController,
+    DefaultMeetingSession,
+    LogLevel,
+    MeetingSessionConfiguration,
+    MeetingSessionStatus,
+    DefaultModality,
+    DefaultActiveSpeakerPolicy,
+    VideoTileState,
+    VideoSource,
+    MeetingSessionVideoAvailability,
+    MeetingSessionStatusCode
+  } from 'amazon-chime-sdk-js';
 
-import {attachVideo, getRandomClientId} from './helpers'
+import {IMeeting} from "./interfaces/IMeeting";
+import {IIndexMap} from "./interfaces/IIndexMap";
+import {IRoster} from "./interfaces/IRoster";
 
-const client = {} as IClient;
-client.peerConnectionByClientId = [];
+var meetingSession:DefaultMeetingSession;
 
-let isStreamReceivedInViewer: boolean = false;
+//////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
+// Creates a meeting using meetingResponse & attendeeResponse from backend
+export const createMeeting = (meeting:IMeeting) => {
 
-export const startClient = async (
-  credentials: ICredentials,
-  localView?: HTMLDivElement,
-  remoteView?: HTMLDivElement,
-): Promise<void> => {
-  client.localView = localView!;
-  client.remoteView = remoteView!;
+    const logger:ConsoleLogger = new ConsoleLogger('MyLogger', LogLevel.INFO);
+    const deviceController: DefaultDeviceController = new DefaultDeviceController(logger);
 
-  // Create KVS client
-  const kinesisVideoClient = new AWS.KinesisVideo({
-    region: credentials.region,
-    accessKeyId: credentials.accessKeyId,
-    secretAccessKey: credentials.secretAccessKey,
-    sessionToken: credentials.sessionToken || '',
-    correctClockSkew: true,
-  });
+    // You need responses from server-side Chime API. See below for details.
+    const meetingResponse = JSON.parse(meeting.meetingResponse);
+    const attendeeResponse = JSON.parse(meeting.attendeeResponse);
 
-  // Get signaling channel ARN
-  const describeSignalingChannelResponse = await kinesisVideoClient
-    .describeSignalingChannel({
-      ChannelName: credentials.channelName,
-    })
-    .promise();
-  // Can cause error
-  const channelARN = describeSignalingChannelResponse.ChannelInfo!.ChannelARN || '';
-  if (channelARN === '') {
-    throw new Error('ChannelARN is empty');
-  }
-  console.log('Client Channel ARN is: ', channelARN);
+    const configuration:MeetingSessionConfiguration = new MeetingSessionConfiguration(meetingResponse, attendeeResponse);
 
-  // Get signaling channel endpoints
-  const getSignalingChannelEndpointResponse = await kinesisVideoClient
-    .getSignalingChannelEndpoint({
-      ChannelARN: channelARN,
-      SingleMasterChannelEndpointConfiguration: {
-        Protocols: ['WSS', 'HTTPS'],
-        Role: credentials.role === 'MASTER' ? KVSWebRTC.Role.MASTER : KVSWebRTC.Role.VIEWER,
-      },
-    })
-    .promise();
-
-  ///////////////////// Can be undefined && Endpoints types are not proper
-  const endpointsByProtocol = getSignalingChannelEndpointResponse.ResourceEndpointList!.reduce(
-    (endpoints: any, endpoint: any) => {
-      endpoints[endpoint.Protocol] = endpoint.ResourceEndpoint;
-      return endpoints;
-    },
-    {},
-  );
-  console.log('Client Endpoints: ', endpointsByProtocol);
-
-  if (credentials.role === 'MASTER') {
-    // Create Signaling Client
-    client.signalingClient = new KVSWebRTC.SignalingClient({
-      channelARN,
-      channelEndpoint: endpointsByProtocol.WSS,
-      role: KVSWebRTC.Role.MASTER,
-      region: credentials.region,
-      credentials: {
-        accessKeyId: credentials.accessKeyId,
-        secretAccessKey: credentials.secretAccessKey,
-        sessionToken: credentials.sessionToken,
-      },
-      systemClockOffset: kinesisVideoClient.config.systemClockOffset,
-    });
-  } else {
-    // Create Signaling Client
-    client.signalingClient = new KVSWebRTC.SignalingClient({
-      channelARN,
-      channelEndpoint: endpointsByProtocol.WSS,
-      clientId: getRandomClientId(),
-      role: KVSWebRTC.Role.VIEWER,
-      region: credentials.region,
-      credentials: {
-        accessKeyId: credentials.accessKeyId,
-        secretAccessKey: credentials.secretAccessKey,
-        sessionToken: credentials.sessionToken,
-      },
-      systemClockOffset: kinesisVideoClient.config.systemClockOffset,
-    });
-  }
-
-  // Get ICE server configuration
-  const kinesisVideoSignalingChannelsClient = new AWS.KinesisVideoSignalingChannels({
-    region: credentials.region,
-    accessKeyId: credentials.accessKeyId,
-    secretAccessKey: credentials.secretAccessKey,
-    sessionToken: credentials.sessionToken,
-    endpoint: endpointsByProtocol.HTTPS,
-    correctClockSkew: true,
-  });
-  const getIceServerConfigResponse = await kinesisVideoSignalingChannelsClient
-    .getIceServerConfig({
-      ChannelARN: channelARN,
-    })
-    .promise();
-  const iceServers = [];
-  iceServers.push({ urls: `stun:stun.kinesisvideo.${credentials.region}.amazonaws.com:443` });
-  ///////////// Can be undefined
-  getIceServerConfigResponse.IceServerList!.forEach((iceServer: any) =>
-    iceServers.push({
-      urls: iceServer.Uris,
-      username: iceServer.Username,
-      credential: iceServer.Password,
-    }),
-  );
-  console.log('ICE servers: ', iceServers);
-
-  // Storing ICE server urls in client object
-  client.iceServers = iceServers;
-
-  const configuration: RTCConfiguration = {
-    iceServers,
-    iceTransportPolicy: 'all',
-  };
-
-  // Taking input from the page to send the video or audio or both
-  const resolution = credentials.widescreen
-    ? {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      }
-    : { width: { ideal: 640 }, height: { ideal: 480 } };
-  const constraints = {
-    video: credentials.sendVideo ? resolution : false,
-    audio: credentials.sendAudio,
-  };
-
-  // Get a stream from the webcam and display it in the local view.
-  // If no video/audio needed, no need to request for the sources.
-  // Otherwise, the browser will throw an error saying that either video or audio has to be enabled.
-  if (credentials.sendVideo || credentials.sendAudio) {
-    try {
-      const mediaDevices = navigator.mediaDevices as any;
-      if (credentials.shareScreen) {
-        // Storing the screen video
-        client.localStream = await mediaDevices.getDisplayMedia(constraints);
-      } else {
-        // Storing the video stream from webcam
-        client.localStream = await mediaDevices.getUserMedia(constraints);
-      }
-      if (client.localStream) attachVideo(localView, client.localStream);
-    } catch (e) {
-      console.log('Could not find webcam, data is not transmitted');
-    }
-  }
-
-  if (credentials.role === 'MASTER') {
-    client.signalingClient.on(
-      'open',
-      async (): Promise<void> => {
-        console.log('Connected to signaling service');
-      },
+    // In the usage examples below, you will use this meetingSession object.
+    meetingSession = new DefaultMeetingSession(
+        configuration,
+        logger,
+        deviceController
     );
 
-    /// Types are left
-    client.signalingClient.on(
-      'sdpOffer',
-      async (offer: any, remoteClientId: any): Promise<void> => {
-        console.log('[MASTER] Received SDP offer from client: ' + remoteClientId);
+}
 
-        // Create a new peer connection using the offer from the given client
-        const peerConnection = new RTCPeerConnection(configuration);
-        client.peerConnectionByClientId[remoteClientId] = peerConnection;
+/////////////////////////////////////////////////// Device Selection //////////////////////////////////////////////////////////////
 
-        // For data messages
-        // if (credentials.openDataChannel) {
-        //     client.dataChannelByClientId[remoteClientId] = peerConnection.createDataChannel('kvsDataChannel');
-        //     peerConnection.ondatachannel = event => {
-        //         event.channel.onmessage = onRemoteDataMessage;
-        //     };
-        // }
+// This function selects the device for audioInput, audioOutput & videoInput
+export const deviceSelector = async():Promise<void> => {
+    
+    let audioInputDevices:MediaDeviceInfo[];
+    let audioOutputDevices:MediaDeviceInfo[];
+    let videoInputDevices:MediaDeviceInfo[];
+    
+    let audioInputDeviceInfo:MediaDeviceInfo;
+    let audioOutputDeviceInfo:MediaDeviceInfo;
+    let videoInputDeviceInfo:MediaDeviceInfo;
+    
+    audioInputDevices = await meetingSession.audioVideo.listAudioInputDevices();
+    audioOutputDevices = await meetingSession.audioVideo.listAudioOutputDevices();
+    videoInputDevices = await meetingSession.audioVideo.listVideoInputDevices();
 
-        // Poll for connection stats
-        if (!client.peerConnectionStatsInterval) {
-          client.peerConnectionStatsInterval = setInterval(() => peerConnection.getStats());
+    // An array of MediaDeviceInfo objects
+    audioInputDevices.forEach(mediaDeviceInfo => {
+    console.log(`Device ID: ${mediaDeviceInfo.deviceId} Microphone: ${mediaDeviceInfo.label}`);
+    });
+
+    // Choose audio input and audio output devices by passing the deviceId of a MediaDeviceInfo object.
+    audioInputDeviceInfo = audioInputDevices[0];
+    await meetingSession.audioVideo.chooseAudioInputDevice(audioInputDeviceInfo.deviceId);
+
+    audioOutputDeviceInfo = audioOutputDevices[0];
+    await meetingSession.audioVideo.chooseAudioOutputDevice(audioOutputDeviceInfo.deviceId);
+
+    videoInputDeviceInfo = videoInputDevices[0];
+    await meetingSession.audioVideo.chooseVideoInputDevice(videoInputDeviceInfo.deviceId);
+
+    // You can pass null to choose none. If the previously chosen camera has an LED light on, it will turn off indicating the camera is no longer capturing.
+    // await meetingSession.audioVideo.chooseVideoInputDevice(null);
+
+    const observer = {
+        audioInputsChanged: async (freshAudioInputDeviceList:MediaDeviceInfo[]):Promise<void> => {
+
+            // An array of MediaDeviceInfo objects
+            freshAudioInputDeviceList.forEach(mediaDeviceInfo => {
+                console.log(`Device ID: ${mediaDeviceInfo.deviceId} Microphone: ${mediaDeviceInfo.label}`);
+            });
+
+            audioInputDeviceInfo = freshAudioInputDeviceList[0];
+            await meetingSession.audioVideo.chooseAudioInputDevice(audioInputDeviceInfo.deviceId);
+        
+        },
+        audioOutputsChanged: async (freshAudioOutputDeviceList:MediaDeviceInfo[]):Promise<void> => {
+
+            console.log('Audio outputs updated: ', freshAudioOutputDeviceList);
+            audioOutputDeviceInfo = freshAudioOutputDeviceList[0];
+            await meetingSession.audioVideo.chooseAudioOutputDevice(audioOutputDeviceInfo.deviceId);
+
+        },
+        videoInputsChanged: async (freshVideoInputDeviceList:MediaDeviceInfo[]):Promise<void> => {
+
+            console.log('Video inputs updated: ', freshVideoInputDeviceList);
+            videoInputDeviceInfo = freshVideoInputDeviceList[0];
+            await meetingSession.audioVideo.chooseVideoInputDevice(videoInputDeviceInfo.deviceId);
+
         }
+    };
+      
+    meetingSession.audioVideo.addDeviceChangeObserver(observer);
+}
 
-        // Send any ICE candidates to the other peer
-        peerConnection.addEventListener('icecandidate', ({ candidate }) => {
-          if (candidate) {
-            console.log('[MASTER] Generated ICE candidate for client: ' + remoteClientId);
+////////////////////////////////////////////////////////// Statring a session ///////////////////////////////////////////////////////
 
-            // Sending ICE candidate
-            console.log('[MASTER] Sending ICE candidate to client: ' + remoteClientId);
-            client.signalingClient.sendIceCandidate(candidate, remoteClientId);
-          } else {
-            console.log('[MASTER] All ICE candidates have been generated for client: ' + remoteClientId);
+// This function starts a session, binds an audio element & shows the lifecycle 
+export const startSession = (audioElement:HTMLAudioElement) => {
+
+    meetingSession.audioVideo.bindAudioElement(audioElement);
+
+    meetingSession.audioVideo.start();
+
+    const lifecycleObserver = {
+        audioVideoDidStart: () => {
+          console.log('Started');
+        },
+        audioVideoDidStop: (sessionStatus:MeetingSessionStatus) => {
+          // See the "Stopping a session" section for details.
+          console.log('Stopped with a session status code: ', sessionStatus.statusCode());
+        },
+        audioVideoDidStartConnecting: (reconnecting:boolean) => {
+          if (reconnecting) {
+            // e.g. the WiFi connection is dropped.
+            console.log('Attempting to reconnect');
           }
-        });
-
-        ///////////////////////////////////// This is not working in test
-        // As viewer's video data is received, add them to the remote view
-        peerConnection.addEventListener('track', (event) => {
-          console.log('[MASTER] Received remote track from client: ' + remoteClientId);
-          attachVideo(remoteView, event.streams[0]);
-        });
-
-        // This is responsible for sending video tracks
-        if (client.localStream) {
-          client.localStream.getTracks().forEach((track: any) => {
-            if (client.localStream) peerConnection.addTrack(track, client.localStream);
-          });
         }
-        await peerConnection.setRemoteDescription(offer);
+    };
 
-        // Create an SDP answer to send back to the client
-        console.log('[MASTER] Creating SDP answer for client: ' + remoteClientId);
-        await peerConnection.setLocalDescription(
-          await peerConnection.createAnswer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: true,
-          }),
-        );
+    // Observer to reveive alerts
+    const observer = {
+        connectionDidBecomePoor: () => {
+          console.log('Your connection is poor');
+        },
+        connectionDidSuggestStopVideo: () => {
+          console.log('Recommend turning off your video');
+        },
+        videoSendDidBecomeUnavailable: () => {
+          // Chime SDK allows a total of 16 simultaneous videos per meeting.
+          // If you try to share more video, this method will be called.
+          // See videoAvailabilityDidChange below to find out when it becomes available.
+          console.log('You cannot share your video');
+        },
+        videoAvailabilityDidChange: (videoAvailability:MeetingSessionVideoAvailability) => {
+          // canStartLocalVideo will also be true if you are already sharing your video.
+          if (videoAvailability.canStartLocalVideo) {
+            console.log('You can share your video');
+          } else {
+            console.log('You cannot share your video');
+          }
+        }
+    };
 
-        // When trickle ICE is enabled, send the answer now and then send ICE candidates as they are generated. Otherwise wait on the ICE candidates.
-        console.log('[MASTER] Sending SDP answer to client: ' + remoteClientId);
-        client.signalingClient.sendSdpAnswer(peerConnection.localDescription!, remoteClientId);
-        console.log('[MASTER] Generating ICE candidates for client: ' + remoteClientId);
-      },
-    );
+    const attendeePresenceSet = new Set();
+    const callback = (presentAttendeeId:string, present:boolean) => {
+    console.log(`Attendee ID: ${presentAttendeeId} Present: ${present}`);
+    if (present) {
+        attendeePresenceSet.add(presentAttendeeId);
+    } else {
+        attendeePresenceSet.delete(presentAttendeeId);
+    }
+    };
 
-    // Receiving data as iceCandidates
-    client.signalingClient.on(
-      'iceCandidate',
-      async (candidate: any, remoteClientId: any): Promise<any> => {
-        console.log('[MASTER] Received ICE candidate from client: ' + remoteClientId);
+    meetingSession!.audioVideo.realtimeSubscribeToAttendeeIdPresence(callback);
+      
+    meetingSession.audioVideo.addObserver(observer);
+      
+    meetingSession.audioVideo.addObserver(lifecycleObserver);
+}
 
-        // Add the ICE candidate received from the client to the peer connection
-        const peerConnection = client.peerConnectionByClientId[remoteClientId];
-        await peerConnection.addIceCandidate(candidate);
-      },
-    );
-  } else {
-    client.peerConnection = new RTCPeerConnection(configuration);
-    /* For Messaging */
-    // if (credentials.openDataChannel) {
-    //     viewer.dataChannel = viewer.peerConnection.createDataChannel('kvsDataChannel');
-    //     viewer.peerConnection.ondatachannel = event => {
-    //         event.channel.onmessage = onRemoteDataMessage;
-    //     };
-    // }
+//////////////////////////////////////////////////////////// Audio //////////////////////////////////////////////////////////////////////
 
-    // Poll for connection stats
-    client.peerConnectionStatsInterval = setInterval(() => client.peerConnection.getStats());
+// This function toggles the local user's audio
+export const toggleAudio = () => {
+    const muted:boolean = meetingSession.audioVideo.realtimeIsLocalAudioMuted();
+    if(muted){
+        console.log('Toggle from mute -> unmute');
+        meetingSession.audioVideo.realtimeUnmuteLocalAudio();
+    }else{
+        console.log('Toggle from unmute -> mute');
+        meetingSession.audioVideo.realtimeMuteLocalAudio();
+    }
+}
 
-    client.signalingClient.on(
-      'open',
-      async (): Promise<void> => {
-        console.log('[VIEWER] Connected to signaling service');
+// This function disables the unmute option for other attendees(Used in presentation mode)
+export const disableUnmute = () => {
+    meetingSession.audioVideo.realtimeSetCanUnmuteLocalAudio(false);
 
-        // This is responsible for sending video tracks
-        if (client.localStream) {
-          client.localStream.getTracks().forEach((track: any) => {
-            if (client.localStream) client.peerConnection.addTrack(track, client.localStream);
-          });
+    // Optional: Force mute.
+    meetingSession.audioVideo.realtimeMuteLocalAudio();
+
+    const unmuted = meetingSession.audioVideo.realtimeUnmuteLocalAudio();
+    console.log(`${unmuted} is false. You cannot unmute yourself`);
+}
+
+// Shows the volume changes made by local user
+export const volumeChanges = () => {
+
+    const presentAttendeeId:string = meetingSession.configuration.credentials!.attendeeId!;
+
+    meetingSession.audioVideo.realtimeSubscribeToVolumeIndicator(
+    presentAttendeeId,
+    (attendeeId, volume, muted, signalStrength) => {
+        const baseAttendeeId = new DefaultModality(attendeeId).base();
+        if (baseAttendeeId !== attendeeId) {
+        // See the "Screen and content share" section for details.
+        console.log(`The volume of ${baseAttendeeId}'s content changes`);
         }
 
-        // Create an SDP offer to send to the master
-        console.log('[VIEWER] Creating SDP offer');
-        await client.peerConnection.setLocalDescription(
-          await client.peerConnection.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: true,
-          }),
-        );
-
-        console.log('[VIEWER] Sending SDP offer');
-        client.signalingClient.sendSdpOffer(client.peerConnection.localDescription!);
-        console.log('[VIEWER] Generating ICE candidates');
-      },
+        // A null value for any field means that it has not changed.
+        console.log(`${attendeeId}'s volume data: `, {
+        volume, // a fraction between 0 and 1
+        muted, // a boolean
+        signalStrength // 0 (no signal), 0.5 (weak), 1 (strong)
+        });
+    }
     );
+}
 
-    // When the sdpAnswer is received from Master
-    client.signalingClient.on(
-      'sdpAnswer',
-      async (answer: any): Promise<void> => {
-        // Add the SDP answer to the peer connection
-        console.log('[VIEWER] Received SDP answer');
-        await client.peerConnection.setRemoteDescription(answer);
-      },
-    );
+// Shows that  the local user is muted or unmuted.
+export const subscribeMute = () => {
 
-    // When iceCandidate is received from master
-    client.signalingClient.on('iceCandidate', (candidate) => {
-      // Add the ICE candidate received from the MASTER to the peer connection
-      console.log('[VIEWER] Received ICE candidate');
-      client.peerConnection.addIceCandidate(candidate);
-    });
+    const presentAttendeeId:string = meetingSession.configuration.credentials!.attendeeId!;
 
-    // Send any ICE candidates to the other peer
-    client.peerConnection.addEventListener('icecandidate', ({ candidate }) => {
-      if (candidate) {
-        console.log('[VIEWER] Generated ICE candidate');
-        console.log('[VIEWER] Sending ICE candidate');
-        client.signalingClient.sendIceCandidate(candidate);
-      } else {
-        console.log('[VIEWER] All ICE candidates have been generated');
-      }
-    });
-
-    // As remote tracks are received, add them to the remote view
-    client.peerConnection.addEventListener('track', (event) => {
-      console.log('[VIEWER] Received remote track');
-
-      // If the video data is already present
-      // if (remoteView!.srcObject) {
-      //     return;
-      // }
-      if (isStreamReceivedInViewer) {
+    // To track mute changes
+    meetingSession.audioVideo.realtimeSubscribeToVolumeIndicator(
+    presentAttendeeId,
+    (attendeeId, volume, muted, signalStrength) => {
+        // A null value for volume, muted and signalStrength field means that it has not changed.
+        if (muted === null) {
+        // muted state has not changed, ignore volume and signalStrength changes
         return;
-      }
+        }
 
-      client.remoteStream = event.streams[0];
-      isStreamReceivedInViewer = true;
-      // remoteView.srcObject = viewer.remoteStream;
-
-      if (client.remoteStream) attachVideo(remoteView, client.remoteStream);
-    });
-  }
-
-  client.signalingClient.on('close', () => {
-    console.log('Disconnected from signaling channel');
-  });
-
-  client.signalingClient.on('error', (error) => {
-    console.error('Signaling client error: ', error);
-  });
-
-  console.log('Starting client connection');
-  client.signalingClient.open();
-};
-
-export const stopClient = (credentials: ICredentials) => {
-  console.log('Stopping client connection');
-  if (client.signalingClient) {
-    client.signalingClient.close();
-    // client.signalingClient = null;
-  }
-
-  if (credentials.role === 'MASTER') {
-    Object.keys(client.peerConnectionByClientId).forEach((clientId: any) => {
-      client.peerConnectionByClientId[clientId].close();
-    });
-    client.peerConnectionByClientId = [];
-
-    client.remoteStreams.forEach((remoteStream) => remoteStream.getTracks().forEach((track: any) => track.stop()));
-    client.remoteStreams = [];
-
-    if (client.dataChannelByClientId) {
-      client.dataChannelByClientId = {};
+        // mute state changed
+        console.log(`${attendeeId}'s mute state changed: `, {
+        muted, // a boolean
+        });
     }
-  } else if (credentials.role === 'VIEWER') {
-    if (client.peerConnection) {
-      client.peerConnection.close();
-      // client.peerConnection = null;
+    );
+}
+
+// This function return the most active speaker
+export const mostActiveSpeaker = (callback:(attendeeId:string[]) => void) => {
+    const activeSpeakerCallback = (attendeeIds:string[]) => {
+        if (attendeeIds.length) {
+          console.log(`${attendeeIds[0]} is the most active speaker`);
+          callback(attendeeIds);
+        }
+      };
+      
+    meetingSession.audioVideo.subscribeToActiveSpeakerDetector(
+        new DefaultActiveSpeakerPolicy(),
+        activeSpeakerCallback
+    );
+}
+
+/////////////////////////////////////////////////////////// Video /////////////////////////////////////////////////////////////////////
+
+// This function toggles the local user's video
+export const toggleVideo = (videoElement:HTMLVideoElement , state:string) => {
+
+    let localTileId:number|null;
+    const observer = {
+        videoTileDidUpdate: (tileState:VideoTileState) => {
+            // Ignore a tile without attendee ID and other attendee's tile.
+            if (!tileState.boundAttendeeId || !tileState.localTile) {
+                return;
+            }
+
+            // videoTileDidUpdate is invoked when you call startLocalVideoTile or tileState changes.
+            // The tileState.active can be false in poor Internet connection, when the user paused the video tile, or when the video tile first arrived.
+            console.log(`If you called stopLocalVideoTile, ${tileState.active} is false.`);
+            meetingSession.audioVideo.bindVideoElement(tileState.tileId!, videoElement);
+            localTileId = tileState.tileId!;
+        },
+        videoTileWasRemoved: (tileId:number) => {
+            if (localTileId === tileId) {
+                console.log(`You called removeLocalVideoTile. videoElement can be bound to another tile.`);
+                localTileId = null;
+            }
+        }
+    };
+
+    meetingSession.audioVideo.addObserver(observer);
+
+    if(state==="on"){
+        meetingSession.audioVideo.startLocalVideoTile();
     }
+    else{
+        meetingSession.audioVideo.stopLocalVideoTile();
 
-    if (client.remoteStream) {
-      client.remoteStream.getTracks().forEach((track: any) => track.stop());
-      client.remoteStream = null;
+        // Optional: You can remove the local tile from the session.
+        meetingSession.audioVideo.removeLocalVideoTile();
     }
+}
 
-    if (client.dataChannel) {
-      client.dataChannel = null;
+// This function is used to only view 1 single remote user's video(1-1 video call)  
+export const viewOneAttendee = (videoElement:HTMLVideoElement) => {
+    const observer = {
+    // videoTileDidUpdate is called whenever a new tile is created or tileState changes.
+    videoTileDidUpdate: (tileState:VideoTileState) => {
+        // Ignore a tile without attendee ID, a local tile (your video), and a content share.
+        if (!tileState.boundAttendeeId || tileState.localTile || tileState.isContent) {
+            return;
+        }
+        meetingSession.audioVideo.bindVideoElement(tileState.tileId!, videoElement);
     }
-  }
+    };
 
-  if (client.localStream) {
-    client.localStream.getTracks().forEach((track: any) => track.stop());
-    client.localStream = null;
-  }
+    meetingSession.audioVideo.addObserver(observer);
+}
 
-  if (client.peerConnectionStatsInterval) {
-    clearInterval(client.peerConnectionStatsInterval);
-    client.peerConnectionStatsInterval = null;
-  }
+// Through this function we can view upto 16 remote user videos
+export const viewAllAttendees = (videoElements:HTMLVideoElement[]) => {
+    // index-tileId pairs
+    const indexMap:IIndexMap={};
 
-  if (client.localView && client.localView.firstChild) {
-    client.localView.removeChild(client.localView.firstChild);
-  }
+    const acquireVideoElement = (tileId:number) => {
+        // Return the same video element if already bound.
+        for (let i = 0; i < 16; i += 1) {
+            if (indexMap[i] === tileId) {
+                return videoElements[i];
+            }
+        }
+        // Return the next available video element.
+        for (let i = 0; i < 16; i += 1) {
+            if (!indexMap.hasOwnProperty(i)) {
+                indexMap[i] = tileId;
+                return videoElements[i];
+            }
+        }
+        throw new Error('no video element is available');
+    };
 
-  if (client.remoteView && client.remoteView.firstChild) {
-    client.remoteView.removeChild(client.remoteView.firstChild);
-  }
-};
+    const releaseVideoElement = (tileId:number) => {
+        for (let i = 0; i < 16; i += 1) {
+            if (indexMap[i] === tileId) {
+                delete indexMap[i];
+                return;
+            }
+        }
+    };
+
+    const observer = {
+        videoTileDidUpdate: (tileState:VideoTileState) => {
+            if (!tileState.boundAttendeeId || tileState.localTile || tileState.isContent) {
+                return;
+            }
+
+            meetingSession.audioVideo.bindVideoElement(tileState.tileId!, acquireVideoElement(tileState.tileId!)
+            );
+        },
+        videoTileWasRemoved: (tileId:number) => {
+            releaseVideoElement(tileId);
+        },
+        remoteVideoSourcesDidChange: (videoSources:VideoSource[]) => {
+            videoSources.forEach((videoSource:VideoSource) => {
+              const { attendee } = videoSource;
+              console.log(`An attendee (${attendee.attendeeId} ${attendee.externalUserId}) is sending video`);
+            });
+        }
+    };
+
+    meetingSession.audioVideo.addObserver(observer);
+}
+
+/////////////////////////////////////////////////////////// Screen Share /////////////////////////////////////////////////////////
+
+// This function will share the screen of local user
+export const screenShare = async (status:boolean):Promise<void> => {
+
+    const observer = {
+        videoTileDidUpdate: (tileState:VideoTileState) => {
+            // Ignore a tile without attendee ID and videos.
+            if (!tileState.boundAttendeeId || !tileState.isContent) {
+                return;
+            }
+
+            const yourAttendeeId = meetingSession.configuration.credentials!.attendeeId;
+
+            // tileState.boundAttendeeId is formatted as "attendee-id#content".
+            const boundAttendeeId = tileState.boundAttendeeId;
+
+            // Get the attendee ID from "attendee-id#content".
+            const baseAttendeeId = new DefaultModality(boundAttendeeId).base();
+            if (baseAttendeeId === yourAttendeeId) {
+                console.log('You called startContentShareFromScreenCapture');
+            }
+        },
+        contentShareDidStart: () => {
+            console.log('Screen share started');
+        },
+        contentShareDidStop: () => {
+            // Chime SDK allows 2 simultaneous content shares per meeting.
+            // This method will be invoked if two attendees are already sharing content
+            // when you call startContentShareFromScreenCapture or startContentShare.
+            console.log('Screen share stopped');
+        }
+    };
+
+    meetingSession.audioVideo.addContentShareObserver(observer);
+    meetingSession.audioVideo.addObserver(observer);
+
+    if(status){
+        // A browser will prompt the user to choose the screen.
+        const contentShareStream = await meetingSession.audioVideo.startContentShareFromScreenCapture();
+    }else{
+        await meetingSession.audioVideo.stopContentShare();
+    }
+    
+}
+
+////////////////////////////////////////////////// Attendees ///////////////////////////////////////////////////////////////////////
+
+// Logic -> we have to trigger this functions whenever the new attendee joins the meeting
+
+// ***** This function creates a roster(side-navbar) in which we can see the attendee,volume,mute & signalStrength
+export const creatingRoster = () => {
+    const roster:IRoster = {};
+
+    meetingSession.audioVideo.realtimeSubscribeToAttendeeIdPresence(
+        (presentAttendeeId:string, present:boolean) => {
+            if (!present) {
+                delete roster[presentAttendeeId];
+                return;
+            }
+
+            meetingSession.audioVideo.realtimeSubscribeToVolumeIndicator(
+                presentAttendeeId,
+                (attendeeId, volume, muted, signalStrength) => {
+                    const baseAttendeeId = new DefaultModality(attendeeId).base();
+                    if (baseAttendeeId !== attendeeId) {
+                        // Optional: Do not include the content attendee (attendee-id#content) in the roster.
+                        return;
+                    }
+
+                    if (roster.hasOwnProperty(attendeeId)) {
+                        // A null value for any field means that it has not changed.
+                        roster[attendeeId].volume = volume; // a fraction between 0 and 1
+                        roster[attendeeId].muted = muted; // A booolean
+                        roster[attendeeId].signalStrength = signalStrength; // 0 (no signal), 0.5 (weak), 1 (strong)
+                    } else {
+                        // Add an attendee.
+                        // Optional: You can fetch more data, such as attendee name, from your server application and set them here.
+                        roster[attendeeId] = {
+                            volume,
+                            muted,
+                            signalStrength
+                        };
+                    }
+                }
+            );
+        }
+    );
+}
+
+/////////////////////////////////////////////////////// Stopping a session ////////////////////////////////////////////////////////////
+
+// This function is supposed to stop the session
+export const leaveSession = () => {
+    const observer = {
+    audioVideoDidStop: (sessionStatus:MeetingSessionStatus) => {
+        const sessionStatusCode = sessionStatus.statusCode();
+        if (sessionStatusCode === MeetingSessionStatusCode.Left) {
+            /*
+                - You called meetingSession.audioVideo.stop().
+                - When closing a browser window or page, Chime SDK attempts to leave the session.
+            */
+            console.log('You left the session');
+        }
+        else if (sessionStatusCode === MeetingSessionStatusCode.MeetingEnded) {
+            /*
+              - You (or someone else) have called the DeleteMeeting API action in your server application.
+              - You attempted to join a deleted meeting.
+              - No audio connections are present in the meeting for more than five minutes.
+              - Fewer than two audio connections are present in the meeting for more than 30 minutes.
+              - Screen share viewer connections are inactive for more than 30 minutes.
+              - The meeting time exceeds 24 hours.
+              See https://docs.aws.amazon.com/chime/latest/dg/mtgs-sdk-mtgs.html for details.
+            */
+            console.log('The session has ended');
+        }
+        else {
+            console.log('Stopped with a session status code: ', sessionStatusCode);
+        }
+    }
+    };
+
+    meetingSession.audioVideo.addObserver(observer);
+
+    meetingSession.audioVideo.stop();
+}
