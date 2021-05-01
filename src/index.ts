@@ -1,31 +1,20 @@
-import * as KVSWebRTC from "amazon-kinesis-video-streams-webrtc";
-import * as AWS from "aws-sdk";
-import { ICredentials } from "./interfaces/ICredentials";
-import { IClient } from "./interfaces/IClient";
+import * as KVSWebRTC from 'amazon-kinesis-video-streams-webrtc';
+import * as AWS from 'aws-sdk';
+import { ICredentials } from './interfaces/ICredentials';
+import { IClient } from './interfaces/IClient';
+
+import {attachVideo, getRandomClientId} from './helpers'
 
 const client = {} as IClient;
-client.peerConnectionByClientId=[];
+client.peerConnectionByClientId = [];
 
-var isStreamRecievedInViewer:boolean = false;
+let isStreamReceivedInViewer: boolean = false;
 
-const attachVideo = (parent: HTMLDivElement | undefined, stream: MediaStream): void => {
-  const vidElement = document.createElement("video");
-  vidElement!.srcObject = stream;
-  vidElement!.autoplay = true;
-  parent?.appendChild(vidElement);
-};
-
-const getRandomClientId = () => {
-  return Math.random()
-      .toString(36)
-      .substring(2)
-      .toUpperCase();
-}
 
 export const startClient = async (
   credentials: ICredentials,
   localView?: HTMLDivElement,
-  remoteView?: HTMLDivElement
+  remoteView?: HTMLDivElement,
 ): Promise<void> => {
   client.localView = localView!;
   client.remoteView = remoteView!;
@@ -35,31 +24,31 @@ export const startClient = async (
     region: credentials.region,
     accessKeyId: credentials.accessKeyId,
     secretAccessKey: credentials.secretAccessKey,
-    sessionToken: credentials.sessionToken || "",
-    correctClockSkew: true
+    sessionToken: credentials.sessionToken || '',
+    correctClockSkew: true,
   });
 
   // Get signaling channel ARN
   const describeSignalingChannelResponse = await kinesisVideoClient
     .describeSignalingChannel({
-      ChannelName: credentials.channelName
+      ChannelName: credentials.channelName,
     })
     .promise();
   // Can cause error
-  const channelARN = describeSignalingChannelResponse.ChannelInfo!.ChannelARN || "";
-  if (channelARN === "") {
-    throw new Error("ChannelARN is empty");
+  const channelARN = describeSignalingChannelResponse.ChannelInfo!.ChannelARN || '';
+  if (channelARN === '') {
+    throw new Error('ChannelARN is empty');
   }
-  console.log("Client Channel ARN is: ", channelARN);
+  console.log('Client Channel ARN is: ', channelARN);
 
   // Get signaling channel endpoints
   const getSignalingChannelEndpointResponse = await kinesisVideoClient
     .getSignalingChannelEndpoint({
       ChannelARN: channelARN,
       SingleMasterChannelEndpointConfiguration: {
-        Protocols: ["WSS", "HTTPS"],
-        Role: credentials.role === "MASTER" ? KVSWebRTC.Role.MASTER : KVSWebRTC.Role.VIEWER
-      }
+        Protocols: ['WSS', 'HTTPS'],
+        Role: credentials.role === 'MASTER' ? KVSWebRTC.Role.MASTER : KVSWebRTC.Role.VIEWER,
+      },
     })
     .promise();
 
@@ -69,38 +58,38 @@ export const startClient = async (
       endpoints[endpoint.Protocol] = endpoint.ResourceEndpoint;
       return endpoints;
     },
-    {}
+    {},
   );
-  console.log("Client Endpoints: ", endpointsByProtocol);
+  console.log('Client Endpoints: ', endpointsByProtocol);
 
-  if(credentials.role === "MASTER"){
+  if (credentials.role === 'MASTER') {
     // Create Signaling Client
     client.signalingClient = new KVSWebRTC.SignalingClient({
       channelARN,
       channelEndpoint: endpointsByProtocol.WSS,
-      role:KVSWebRTC.Role.MASTER,
+      role: KVSWebRTC.Role.MASTER,
       region: credentials.region,
       credentials: {
         accessKeyId: credentials.accessKeyId,
         secretAccessKey: credentials.secretAccessKey,
-        sessionToken: credentials.sessionToken
+        sessionToken: credentials.sessionToken,
       },
-      systemClockOffset: kinesisVideoClient.config.systemClockOffset
+      systemClockOffset: kinesisVideoClient.config.systemClockOffset,
     });
-  }else{
+  } else {
     // Create Signaling Client
     client.signalingClient = new KVSWebRTC.SignalingClient({
       channelARN,
       channelEndpoint: endpointsByProtocol.WSS,
       clientId: getRandomClientId(),
-      role:KVSWebRTC.Role.VIEWER,
+      role: KVSWebRTC.Role.VIEWER,
       region: credentials.region,
       credentials: {
         accessKeyId: credentials.accessKeyId,
         secretAccessKey: credentials.secretAccessKey,
-        sessionToken: credentials.sessionToken
+        sessionToken: credentials.sessionToken,
       },
-      systemClockOffset: kinesisVideoClient.config.systemClockOffset
+      systemClockOffset: kinesisVideoClient.config.systemClockOffset,
     });
   }
 
@@ -111,11 +100,11 @@ export const startClient = async (
     secretAccessKey: credentials.secretAccessKey,
     sessionToken: credentials.sessionToken,
     endpoint: endpointsByProtocol.HTTPS,
-    correctClockSkew: true
+    correctClockSkew: true,
   });
   const getIceServerConfigResponse = await kinesisVideoSignalingChannelsClient
     .getIceServerConfig({
-      ChannelARN: channelARN
+      ChannelARN: channelARN,
     })
     .promise();
   const iceServers = [];
@@ -125,29 +114,29 @@ export const startClient = async (
     iceServers.push({
       urls: iceServer.Uris,
       username: iceServer.Username,
-      credential: iceServer.Password
-    })
+      credential: iceServer.Password,
+    }),
   );
-  console.log("ICE servers: ", iceServers);
+  console.log('ICE servers: ', iceServers);
 
   // Storing ICE server urls in client object
   client.iceServers = iceServers;
 
   const configuration: RTCConfiguration = {
     iceServers,
-    iceTransportPolicy: "all"
+    iceTransportPolicy: 'all',
   };
 
   // Taking input from the page to send the video or audio or both
   const resolution = credentials.widescreen
     ? {
-      width: { ideal: 1280 },
-      height: { ideal: 720 }
-    }
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      }
     : { width: { ideal: 640 }, height: { ideal: 480 } };
   const constraints = {
     video: credentials.sendVideo ? resolution : false,
-    audio: credentials.sendAudio
+    audio: credentials.sendAudio,
   };
 
   // Get a stream from the webcam and display it in the local view.
@@ -163,26 +152,25 @@ export const startClient = async (
         // Storing the video stream from webcam
         client.localStream = await mediaDevices.getUserMedia(constraints);
       }
-      if (client.localStream)
-        attachVideo(localView, client.localStream);
+      if (client.localStream) attachVideo(localView, client.localStream);
     } catch (e) {
-      console.log("Could not find webcam, data is not transmitted");
+      console.log('Could not find webcam, data is not transmitted');
     }
   }
 
-  if (credentials.role === "MASTER") {
+  if (credentials.role === 'MASTER') {
     client.signalingClient.on(
-      "open",
+      'open',
       async (): Promise<void> => {
-        console.log("Connected to signaling service");
-      }
+        console.log('Connected to signaling service');
+      },
     );
 
     /// Types are left
     client.signalingClient.on(
-      "sdpOffer",
+      'sdpOffer',
       async (offer: any, remoteClientId: any): Promise<void> => {
-        console.log("[MASTER] Received SDP offer from client: " + remoteClientId);
+        console.log('[MASTER] Received SDP offer from client: ' + remoteClientId);
 
         // Create a new peer connection using the offer from the given client
         const peerConnection = new RTCPeerConnection(configuration);
@@ -202,22 +190,22 @@ export const startClient = async (
         }
 
         // Send any ICE candidates to the other peer
-        peerConnection.addEventListener("icecandidate", ({ candidate }) => {
+        peerConnection.addEventListener('icecandidate', ({ candidate }) => {
           if (candidate) {
-            console.log("[MASTER] Generated ICE candidate for client: " + remoteClientId);
+            console.log('[MASTER] Generated ICE candidate for client: ' + remoteClientId);
 
             // Sending ICE candidate
-            console.log("[MASTER] Sending ICE candidate to client: " + remoteClientId);
+            console.log('[MASTER] Sending ICE candidate to client: ' + remoteClientId);
             client.signalingClient.sendIceCandidate(candidate, remoteClientId);
           } else {
-            console.log("[MASTER] All ICE candidates have been generated for client: " + remoteClientId);
+            console.log('[MASTER] All ICE candidates have been generated for client: ' + remoteClientId);
           }
         });
 
         ///////////////////////////////////// This is not working in test
         // As viewer's video data is received, add them to the remote view
-        peerConnection.addEventListener("track", (event) => {
-          console.log("[MASTER] Received remote track from client: " + remoteClientId);
+        peerConnection.addEventListener('track', (event) => {
+          console.log('[MASTER] Received remote track from client: ' + remoteClientId);
           attachVideo(remoteView, event.streams[0]);
         });
 
@@ -230,31 +218,31 @@ export const startClient = async (
         await peerConnection.setRemoteDescription(offer);
 
         // Create an SDP answer to send back to the client
-        console.log("[MASTER] Creating SDP answer for client: " + remoteClientId);
+        console.log('[MASTER] Creating SDP answer for client: ' + remoteClientId);
         await peerConnection.setLocalDescription(
           await peerConnection.createAnswer({
             offerToReceiveAudio: true,
-            offerToReceiveVideo: true
-          })
+            offerToReceiveVideo: true,
+          }),
         );
 
         // When trickle ICE is enabled, send the answer now and then send ICE candidates as they are generated. Otherwise wait on the ICE candidates.
-        console.log("[MASTER] Sending SDP answer to client: " + remoteClientId);
+        console.log('[MASTER] Sending SDP answer to client: ' + remoteClientId);
         client.signalingClient.sendSdpAnswer(peerConnection.localDescription!, remoteClientId);
-        console.log("[MASTER] Generating ICE candidates for client: " + remoteClientId);
-      }
+        console.log('[MASTER] Generating ICE candidates for client: ' + remoteClientId);
+      },
     );
 
     // Receiving data as iceCandidates
     client.signalingClient.on(
-      "iceCandidate",
+      'iceCandidate',
       async (candidate: any, remoteClientId: any): Promise<any> => {
-        console.log("[MASTER] Received ICE candidate from client: " + remoteClientId);
+        console.log('[MASTER] Received ICE candidate from client: ' + remoteClientId);
 
         // Add the ICE candidate received from the client to the peer connection
         const peerConnection = client.peerConnectionByClientId[remoteClientId];
         await peerConnection.addIceCandidate(candidate);
-      }
+      },
     );
   } else {
     client.peerConnection = new RTCPeerConnection(configuration);
@@ -270,103 +258,100 @@ export const startClient = async (
     client.peerConnectionStatsInterval = setInterval(() => client.peerConnection.getStats());
 
     client.signalingClient.on(
-      "open",
+      'open',
       async (): Promise<void> => {
-        console.log("[VIEWER] Connected to signaling service");
+        console.log('[VIEWER] Connected to signaling service');
 
         // This is responsible for sending video tracks
         if (client.localStream) {
-          client.localStream
-            .getTracks()
-            .forEach((track: any) => {
-              if (client.localStream) client.peerConnection.addTrack(track, client.localStream);
-            });
+          client.localStream.getTracks().forEach((track: any) => {
+            if (client.localStream) client.peerConnection.addTrack(track, client.localStream);
+          });
         }
 
         // Create an SDP offer to send to the master
-        console.log("[VIEWER] Creating SDP offer");
+        console.log('[VIEWER] Creating SDP offer');
         await client.peerConnection.setLocalDescription(
           await client.peerConnection.createOffer({
             offerToReceiveAudio: true,
-            offerToReceiveVideo: true
-          })
+            offerToReceiveVideo: true,
+          }),
         );
 
-        console.log("[VIEWER] Sending SDP offer");
+        console.log('[VIEWER] Sending SDP offer');
         client.signalingClient.sendSdpOffer(client.peerConnection.localDescription!);
-        console.log("[VIEWER] Generating ICE candidates");
-      }
+        console.log('[VIEWER] Generating ICE candidates');
+      },
     );
 
     // When the sdpAnswer is received from Master
     client.signalingClient.on(
-      "sdpAnswer",
+      'sdpAnswer',
       async (answer: any): Promise<void> => {
         // Add the SDP answer to the peer connection
-        console.log("[VIEWER] Received SDP answer");
+        console.log('[VIEWER] Received SDP answer');
         await client.peerConnection.setRemoteDescription(answer);
-      }
+      },
     );
 
     // When iceCandidate is received from master
-    client.signalingClient.on("iceCandidate", (candidate) => {
+    client.signalingClient.on('iceCandidate', (candidate) => {
       // Add the ICE candidate received from the MASTER to the peer connection
-      console.log("[VIEWER] Received ICE candidate");
+      console.log('[VIEWER] Received ICE candidate');
       client.peerConnection.addIceCandidate(candidate);
     });
 
     // Send any ICE candidates to the other peer
-    client.peerConnection.addEventListener("icecandidate", ({ candidate }) => {
+    client.peerConnection.addEventListener('icecandidate', ({ candidate }) => {
       if (candidate) {
-        console.log("[VIEWER] Generated ICE candidate");
-        console.log("[VIEWER] Sending ICE candidate");
+        console.log('[VIEWER] Generated ICE candidate');
+        console.log('[VIEWER] Sending ICE candidate');
         client.signalingClient.sendIceCandidate(candidate);
       } else {
-        console.log("[VIEWER] All ICE candidates have been generated");
+        console.log('[VIEWER] All ICE candidates have been generated');
       }
     });
 
     // As remote tracks are received, add them to the remote view
-    client.peerConnection.addEventListener("track", (event) => {
-      console.log("[VIEWER] Received remote track");
-      
+    client.peerConnection.addEventListener('track', (event) => {
+      console.log('[VIEWER] Received remote track');
+
       // If the video data is already present
       // if (remoteView!.srcObject) {
       //     return;
       // }
-      if(isStreamRecievedInViewer){
+      if (isStreamReceivedInViewer) {
         return;
       }
-      
+
       client.remoteStream = event.streams[0];
-      isStreamRecievedInViewer = true;
+      isStreamReceivedInViewer = true;
       // remoteView.srcObject = viewer.remoteStream;
 
-      if (client.remoteStream)
-        attachVideo(remoteView, client.remoteStream);
+      if (client.remoteStream) attachVideo(remoteView, client.remoteStream);
     });
   }
 
-  client.signalingClient.on("close", () => {
-    console.log("Disconnected from signaling channel");
+  client.signalingClient.on('close', () => {
+    console.log('Disconnected from signaling channel');
   });
 
-  client.signalingClient.on("error", (error) => {
-    console.error("Signaling client error: ", error);
+  client.signalingClient.on('error', (error) => {
+    console.error('Signaling client error: ', error);
   });
 
-  console.log("Starting client connection");
+  console.log('Starting client connection');
   client.signalingClient.open();
 };
 
 export const stopClient = (credentials: ICredentials) => {
-  console.log("Stopping client connection");
+  console.log('Stopping client connection');
   if (client.signalingClient) {
     client.signalingClient.close();
     // client.signalingClient = null;
   }
 
-  if (credentials.role === "MASTER") {
+  if (credentials.role === 'MASTER') {
     Object.keys(client.peerConnectionByClientId).forEach((clientId: any) => {
       client.peerConnectionByClientId[clientId].close();
     });
@@ -378,7 +363,7 @@ export const stopClient = (credentials: ICredentials) => {
     if (client.dataChannelByClientId) {
       client.dataChannelByClientId = {};
     }
-  } else if (credentials.role === "VIEWER") {
+  } else if (credentials.role === 'VIEWER') {
     if (client.peerConnection) {
       client.peerConnection.close();
       // client.peerConnection = null;
