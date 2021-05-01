@@ -156,6 +156,18 @@ export const startSession = (audioElement:HTMLAudioElement) => {
           }
         }
     };
+
+    const attendeePresenceSet = new Set();
+    const callback = (presentAttendeeId:string, present:boolean) => {
+    console.log(`Attendee ID: ${presentAttendeeId} Present: ${present}`);
+    if (present) {
+        attendeePresenceSet.add(presentAttendeeId);
+    } else {
+        attendeePresenceSet.delete(presentAttendeeId);
+    }
+    };
+
+    meetingSession!.audioVideo.realtimeSubscribeToAttendeeIdPresence(callback);
       
     meetingSession.audioVideo.addObserver(observer);
       
@@ -235,11 +247,11 @@ export const subscribeMute = () => {
 }
 
 // This function return the most active speaker
-export const mostActiveSpeaker = (callback:(attendeeId:string) => void) => {
+export const mostActiveSpeaker = (callback:(attendeeId:string[]) => void) => {
     const activeSpeakerCallback = (attendeeIds:string[]) => {
         if (attendeeIds.length) {
           console.log(`${attendeeIds[0]} is the most active speaker`);
-          callback(attendeeIds[0]);
+          callback(attendeeIds);
         }
       };
       
@@ -409,21 +421,6 @@ export const screenShare = async (status:boolean):Promise<void> => {
 
 // Logic -> we have to trigger this functions whenever the new attendee joins the meeting
 
-// ***** Shows the presence of attendees whenever they join and leave the meeting
-export const attendeePresenceChanges = () => {
-    const attendeePresenceSet = new Set();
-    const callback = (presentAttendeeId:string, present:boolean) => {
-    console.log(`Attendee ID: ${presentAttendeeId} Present: ${present}`);
-    if (present) {
-        attendeePresenceSet.add(presentAttendeeId);
-    } else {
-        attendeePresenceSet.delete(presentAttendeeId);
-    }
-    };
-
-    meetingSession!.audioVideo.realtimeSubscribeToAttendeeIdPresence(callback);
-} 
-
 // ***** This function creates a roster(side-navbar) in which we can see the attendee,volume,mute & signalStrength
 export const creatingRoster = () => {
     const roster:IRoster = {};
@@ -446,7 +443,6 @@ export const creatingRoster = () => {
 
                     if (roster.hasOwnProperty(attendeeId)) {
                         // A null value for any field means that it has not changed.
-                        roster[attendeeId].attendeeId = attendeeId;
                         roster[attendeeId].volume = volume; // a fraction between 0 and 1
                         roster[attendeeId].muted = muted; // A booolean
                         roster[attendeeId].signalStrength = signalStrength; // 0 (no signal), 0.5 (weak), 1 (strong)
@@ -454,7 +450,6 @@ export const creatingRoster = () => {
                         // Add an attendee.
                         // Optional: You can fetch more data, such as attendee name, from your server application and set them here.
                         roster[attendeeId] = {
-                            attendeeId,
                             volume,
                             muted,
                             signalStrength
