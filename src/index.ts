@@ -17,7 +17,7 @@ import {IMeeting} from "./interfaces/IMeeting";
 import {IIndexMap} from "./interfaces/IIndexMap";
 import {IRoster} from "./interfaces/IRoster";
 
-var meetingSession:DefaultMeetingSession;
+let meetingSession:DefaultMeetingSession;
 
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
