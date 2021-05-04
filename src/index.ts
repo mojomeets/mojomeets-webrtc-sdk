@@ -23,6 +23,8 @@ export const attendeePresenceSet = new Set();
 
 export const roster: IRoster = {};
 
+let localTileId: number | null;
+
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
 // Creates a meeting using meetingResponse & attendeeResponse from backend
@@ -117,7 +119,7 @@ export const deviceSelector = async (): Promise<void> => {
 ////////////////////////////////////////////////////////// Statring a session ///////////////////////////////////////////////////////
 
 // This function starts a session, binds an audio element & shows the lifecycle 
-export const startSession = async (audioElement: string) => {
+const startSession = async (audioElement: string,cbForStart?:() => void, cbForStop?:(sessionStatus: MeetingSessionStatus) => void, cbForConnecting?:(reconnecting: boolean) => void) => {
 
   const audioTag = document.getElementById(audioElement) as HTMLAudioElement;
   await meetingSession.audioVideo.bindAudioElement(audioTag);
@@ -127,44 +129,21 @@ export const startSession = async (audioElement: string) => {
   const lifecycleObserver = {
     audioVideoDidStart: () => {
       console.log("Started");
+      cbForStart!();
     },
     audioVideoDidStop: (sessionStatus: MeetingSessionStatus) => {
       // See the "Stopping a session" section for details.
       console.log("Stopped with a session status code: ", sessionStatus.statusCode());
+      cbForStop!(sessionStatus);
     },
     audioVideoDidStartConnecting: (reconnecting: boolean) => {
       if (reconnecting) {
         // e.g. the WiFi connection is dropped.
         console.log("Attempting to reconnect");
+        cbForConnecting!(reconnecting);
       }
     }
   };
-
-  // Observer to reveive alerts
-  const observer = {
-    connectionDidBecomePoor: () => {
-      console.log("Your connection is poor");
-    },
-    connectionDidSuggestStopVideo: () => {
-      console.log("Recommend turning off your video");
-    },
-    videoSendDidBecomeUnavailable: () => {
-      // Chime SDK allows a total of 16 simultaneous videos per meeting.
-      // If you try to share more video, this method will be called.
-      // See videoAvailabilityDidChange below to find out when it becomes available.
-      console.log("You cannot share your video");
-    },
-    videoAvailabilityDidChange: (videoAvailability: MeetingSessionVideoAvailability) => {
-      // canStartLocalVideo will also be true if you are already sharing your video.
-      if (videoAvailability.canStartLocalVideo) {
-        console.log("You can share your video");
-      } else {
-        console.log("You cannot share your video");
-      }
-    }
-  };
-
-  meetingSession.audioVideo.addObserver(observer);
 
   meetingSession.audioVideo.addObserver(lifecycleObserver);
 
@@ -263,30 +242,6 @@ export const mostActiveSpeaker = (callback: (attendeeId: string[]) => void) => {
 // This function toggles the local user's video
 export const toggleVideo = (videoElement: HTMLVideoElement, state: boolean) => {
 
-  let localTileId: number | null;
-  const observer = {
-    videoTileDidUpdate: (tileState: VideoTileState) => {
-      // Ignore a tile without attendee ID and other attendee's tile.
-      if (!tileState.boundAttendeeId || !tileState.localTile) {
-        return;
-      }
-
-      // videoTileDidUpdate is invoked when you call startLocalVideoTile or tileState changes.
-      // The tileState.active can be false in poor Internet connection, when the user paused the video tile, or when the video tile first arrived.
-      console.log(`If you called stopLocalVideoTile, ${tileState.active} is false.`);
-      meetingSession.audioVideo.bindVideoElement(tileState.tileId!, videoElement);
-      localTileId = tileState.tileId!;
-    },
-    videoTileWasRemoved: (tileId: number) => {
-      if (localTileId === tileId) {
-        console.log(`You called removeLocalVideoTile. videoElement can be bound to another tile.`);
-        localTileId = null;
-      }
-    }
-  };
-
-  meetingSession.audioVideo.addObserver(observer);
-
   if (state) {
     meetingSession.audioVideo.startLocalVideoTile();
   } else {
@@ -298,20 +253,20 @@ export const toggleVideo = (videoElement: HTMLVideoElement, state: boolean) => {
 };
 
 // This function is used to only view 1 single remote user's video(1-1 video call)  
-export const viewOneAttendee = (videoElement: HTMLVideoElement) => {
-  const observer = {
-    // videoTileDidUpdate is called whenever a new tile is created or tileState changes.
-    videoTileDidUpdate: (tileState: VideoTileState) => {
-      // Ignore a tile without attendee ID, a local tile (your video), and a content share.
-      if (!tileState.boundAttendeeId || tileState.localTile || tileState.isContent) {
-        return;
-      }
-      meetingSession.audioVideo.bindVideoElement(tileState.tileId!, videoElement);
-    }
-  };
+// export const viewOneAttendee = (videoElement: HTMLVideoElement) => {
+//   const observer = {
+//     // videoTileDidUpdate is called whenever a new tile is created or tileState changes.
+//     videoTileDidUpdate: (tileState: VideoTileState) => {
+//       // Ignore a tile without attendee ID, a local tile (your video), and a content share.
+//       if (!tileState.boundAttendeeId || tileState.localTile || tileState.isContent) {
+//         return;
+//       }
+//       meetingSession.audioVideo.bindVideoElement(tileState.tileId!, videoElement);
+//     }
+//   };
 
-  meetingSession.audioVideo.addObserver(observer);
-};
+//   meetingSession.audioVideo.addObserver(observer);
+// };
 
 const onVideoPlay = (videoElement:HTMLVideoElement) => {
     const observer = {
@@ -338,38 +293,6 @@ export const attachVideo = (attendeeId:string , videoElement:HTMLVideoElement) =
 
 // This function will share the screen of local user
 export const screenShare = async (status: boolean): Promise<void> => {
-
-  const observer = {
-    videoTileDidUpdate: (tileState: VideoTileState) => {
-      // Ignore a tile without attendee ID and videos.
-      if (!tileState.boundAttendeeId || !tileState.isContent) {
-        return;
-      }
-
-      const yourAttendeeId = meetingSession.configuration.credentials!.attendeeId;
-
-      // tileState.boundAttendeeId is formatted as "attendee-id#content".
-      const boundAttendeeId = tileState.boundAttendeeId;
-
-      // Get the attendee ID from "attendee-id#content".
-      const baseAttendeeId = new DefaultModality(boundAttendeeId).base();
-      if (baseAttendeeId === yourAttendeeId) {
-        console.log("You called startContentShareFromScreenCapture");
-      }
-    },
-    contentShareDidStart: () => {
-      console.log("Screen share started");
-    },
-    contentShareDidStop: () => {
-      // Chime SDK allows 2 simultaneous content shares per meeting.
-      // This method will be invoked if two attendees are already sharing content
-      // when you call startContentShareFromScreenCapture or startContentShare.
-      console.log("Screen share stopped");
-    }
-  };
-
-  meetingSession.audioVideo.addContentShareObserver(observer);
-  meetingSession.audioVideo.addObserver(observer);
 
   if (status) {
     // A browser will prompt the user to choose the screen.
@@ -439,30 +362,31 @@ export const creatingRoster = () => {
 /////////////////////////////////////////////////////// Stopping a session ////////////////////////////////////////////////////////////
 
 // This function is supposed to stop the session
-export const leaveSession = () => {
+export const leaveSession = (cbVideoDidStop:(sessionStatus: MeetingSessionStatus) => void) => {
   const observer = {
     audioVideoDidStop: (sessionStatus: MeetingSessionStatus) => {
-      const sessionStatusCode = sessionStatus.statusCode();
-      if (sessionStatusCode === MeetingSessionStatusCode.Left) {
-        /*
-            - You called meetingSession.audioVideo.stop().
-            - When closing a browser window or page, Chime SDK attempts to leave the session.
-        */
-        console.log("You left the session");
-      } else if (sessionStatusCode === MeetingSessionStatusCode.MeetingEnded) {
-        /*
-          - You (or someone else) have called the DeleteMeeting API action in your server application.
-          - You attempted to join a deleted meeting.
-          - No audio connections are present in the meeting for more than five minutes.
-          - Fewer than two audio connections are present in the meeting for more than 30 minutes.
-          - Screen share viewer connections are inactive for more than 30 minutes.
-          - The meeting time exceeds 24 hours.
-          See https://docs.aws.amazon.com/chime/latest/dg/mtgs-sdk-mtgs.html for details.
-        */
-        console.log("The session has ended");
-      } else {
-        console.log("Stopped with a session status code: ", sessionStatusCode);
-      }
+        cbVideoDidStop!(sessionStatus);
+        const sessionStatusCode = sessionStatus.statusCode();
+        if (sessionStatusCode === MeetingSessionStatusCode.Left) {
+            /*
+                - You called meetingSession.audioVideo.stop().
+                - When closing a browser window or page, Chime SDK attempts to leave the session.
+            */
+            console.log("You left the session");
+        } else if (sessionStatusCode === MeetingSessionStatusCode.MeetingEnded) {
+            /*
+            - You (or someone else) have called the DeleteMeeting API action in your server application.
+            - You attempted to join a deleted meeting.
+            - No audio connections are present in the meeting for more than five minutes.
+            - Fewer than two audio connections are present in the meeting for more than 30 minutes.
+            - Screen share viewer connections are inactive for more than 30 minutes.
+            - The meeting time exceeds 24 hours.
+            See https://docs.aws.amazon.com/chime/latest/dg/mtgs-sdk-mtgs.html for details.
+            */
+            console.log("The session has ended");
+        } else {
+            console.log("Stopped with a session status code: ", sessionStatusCode);
+        }
     }
   };
 
@@ -470,3 +394,116 @@ export const leaveSession = () => {
 
   meetingSession.audioVideo.stop();
 };
+
+////////////////////////////////////////////////////////////// AllObservers ///////////////////////////////////////////////////////////////
+
+export const attachAlertObservers = (
+    cbForPoorCOnnection?:() => void,
+    cbForStopVideo?:() => void,
+    cbForVideoUnavailable?:() => void,
+    cbForVideoAvailability?:(videoAvailability: MeetingSessionVideoAvailability) => void,
+    ) => {
+    // Observer to reveive alerts
+    const observer = {
+        connectionDidBecomePoor: () => {
+            console.log("Your connection is poor");
+            cbForPoorCOnnection!();
+        },
+        connectionDidSuggestStopVideo: () => {
+            console.log("Recommend turning off your video");
+            cbForStopVideo!();
+        },
+        videoSendDidBecomeUnavailable: () => {
+            // Chime SDK allows a total of 16 simultaneous videos per meeting.
+            // If you try to share more video, this method will be called.
+            // See videoAvailabilityDidChange below to find out when it becomes available.
+            console.log("You cannot share your video");
+            cbForVideoUnavailable!();
+        },
+        videoAvailabilityDidChange: (videoAvailability: MeetingSessionVideoAvailability) => {
+            // canStartLocalVideo will also be true if you are already sharing your video.
+            cbForVideoAvailability!(videoAvailability);
+            if (videoAvailability.canStartLocalVideo) {
+                console.log("You can share your video");
+            } else {
+                console.log("You cannot share your video");
+            }
+        }
+    };
+
+    meetingSession.audioVideo.addObserver(observer);
+}
+
+export const addVideoObservers = (
+    videoElement: HTMLVideoElement,
+    cbForVideoDidUpdate?:(tileState: VideoTileState) => void,
+    cbForVideoWasRemoved?:(tileId: number) => void) => {
+    const videoObserver = {
+        videoTileDidUpdate: (tileState: VideoTileState) => {
+
+            cbForVideoDidUpdate!(tileState);
+            // Ignore a tile without attendee ID and other attendee's tile.
+            if (!tileState.boundAttendeeId || !tileState.localTile) {
+                return;
+            }
+        
+            // videoTileDidUpdate is invoked when you call startLocalVideoTile or tileState changes.
+            // The tileState.active can be false in poor Internet connection, when the user paused the video tile, or when the video tile first arrived.
+            console.log(`If you called stopLocalVideoTile, ${tileState.active} is false.`);
+            meetingSession.audioVideo.bindVideoElement(tileState.tileId!, videoElement);
+            localTileId = tileState.tileId!;
+        },
+        videoTileWasRemoved: (tileId: number) => {
+            cbForVideoWasRemoved!(tileId);
+            if (localTileId === tileId) {
+                console.log(`You called removeLocalVideoTile. videoElement can be bound to another tile.`);
+                localTileId = null;
+            }
+        }
+      };
+
+    meetingSession.audioVideo.addObserver(videoObserver);
+}
+
+export const addScreenShareObservers = (
+    cbForVideoDidUpdate?:(tileState: VideoTileState) => void,
+    cbForStartShare?:() => void,
+    cbForStopShare?:() => void
+    ) => {
+    const screenShareObserver = {
+        videoTileDidUpdate: (tileState: VideoTileState) => {
+          // Ignore a tile without attendee ID and videos.
+
+
+          if (!tileState.boundAttendeeId || !tileState.isContent) {
+            return;
+          }
+    
+          cbForVideoDidUpdate!(tileState);
+          const yourAttendeeId = meetingSession.configuration.credentials!.attendeeId;
+    
+          // tileState.boundAttendeeId is formatted as "attendee-id#content".
+          const boundAttendeeId = tileState.boundAttendeeId;
+    
+          // Get the attendee ID from "attendee-id#content".
+          const baseAttendeeId = new DefaultModality(boundAttendeeId).base();
+          if (baseAttendeeId === yourAttendeeId) {
+            console.log("You called startContentShareFromScreenCapture");
+          }
+        },
+        contentShareDidStart: () => {
+          console.log("Screen share started");
+          cbForStartShare!();
+        },
+        contentShareDidStop: () => {
+            cbForStopShare!();
+            // Chime SDK allows 2 simultaneous content shares per meeting.
+            // This method will be invoked if two attendees are already sharing content
+            // when you call startContentShareFromScreenCapture or startContentShare.
+            console.log("Screen share stopped");
+        }
+    };
+
+    meetingSession.audioVideo.addContentShareObserver(screenShareObserver);
+    meetingSession.audioVideo.addObserver(screenShareObserver);
+}
