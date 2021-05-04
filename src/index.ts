@@ -26,7 +26,7 @@ export const roster:IRoster = {};
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
 // Creates a meeting using meetingResponse & attendeeResponse from backend
-export const createMeeting = (meeting:IMeeting) => {
+export const createMeeting = async (meeting:IMeeting) => {
 
     const logger:ConsoleLogger = new ConsoleLogger('MyLogger', LogLevel.INFO);
     const deviceController: DefaultDeviceController = new DefaultDeviceController(logger);
@@ -44,7 +44,7 @@ export const createMeeting = (meeting:IMeeting) => {
         deviceController
     );
     
-    deviceSelector();
+    await deviceSelector();
 }
 
 /////////////////////////////////////////////////// Device Selection //////////////////////////////////////////////////////////////
@@ -116,9 +116,9 @@ export const deviceSelector = async():Promise<void> => {
 ////////////////////////////////////////////////////////// Statring a session ///////////////////////////////////////////////////////
 
 // This function starts a session, binds an audio element & shows the lifecycle 
-export const startSession = (audioElement:HTMLAudioElement) => {
+export const startSession = async (audioElement:HTMLAudioElement) => {
 
-    meetingSession.audioVideo.bindAudioElement(audioElement);
+    await meetingSession.audioVideo.bindAudioElement(audioElement);
 
     meetingSession.audioVideo.start();
 
