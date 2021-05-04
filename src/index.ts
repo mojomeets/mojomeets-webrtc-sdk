@@ -17,7 +17,11 @@ import {IMeeting} from "./interfaces/IMeeting";
 import {IIndexMap} from "./interfaces/IIndexMap";
 import {IRoster} from "./interfaces/IRoster";
 
-var meetingSession:DefaultMeetingSession;
+export let meetingSession:DefaultMeetingSession;
+
+export const attendeePresenceSet = new Set();
+
+export const roster:IRoster = {};
 
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
@@ -39,7 +43,8 @@ export const createMeeting = (meeting:IMeeting) => {
         logger,
         deviceController
     );
-
+    
+    deviceSelector();
 }
 
 /////////////////////////////////////////////////// Device Selection //////////////////////////////////////////////////////////////
@@ -156,22 +161,12 @@ export const startSession = (audioElement:HTMLAudioElement) => {
           }
         }
     };
-
-    const attendeePresenceSet = new Set();
-    const callback = (presentAttendeeId:string, present:boolean) => {
-    console.log(`Attendee ID: ${presentAttendeeId} Present: ${present}`);
-    if (present) {
-        attendeePresenceSet.add(presentAttendeeId);
-    } else {
-        attendeePresenceSet.delete(presentAttendeeId);
-    }
-    };
-
-    meetingSession!.audioVideo.realtimeSubscribeToAttendeeIdPresence(callback);
       
     meetingSession.audioVideo.addObserver(observer);
       
     meetingSession.audioVideo.addObserver(lifecycleObserver);
+
+    creatingRoster();
 }
 
 //////////////////////////////////////////////////////////// Audio //////////////////////////////////////////////////////////////////////
@@ -264,7 +259,7 @@ export const mostActiveSpeaker = (callback:(attendeeId:string[]) => void) => {
 /////////////////////////////////////////////////////////// Video /////////////////////////////////////////////////////////////////////
 
 // This function toggles the local user's video
-export const toggleVideo = (videoElement:HTMLVideoElement , state:string) => {
+export const toggleVideo = (videoElement:HTMLVideoElement , state:boolean) => {
 
     let localTileId:number|null;
     const observer = {
@@ -290,7 +285,7 @@ export const toggleVideo = (videoElement:HTMLVideoElement , state:string) => {
 
     meetingSession.audioVideo.addObserver(observer);
 
-    if(state==="on"){
+    if(state){
         meetingSession.audioVideo.startLocalVideoTile();
     }
     else{
@@ -354,8 +349,7 @@ export const viewAllAttendees = (videoElements:HTMLVideoElement[]) => {
                 return;
             }
 
-            meetingSession.audioVideo.bindVideoElement(tileState.tileId!, acquireVideoElement(tileState.tileId!)
-            );
+            meetingSession.audioVideo.bindVideoElement(tileState.tileId!, acquireVideoElement(tileState.tileId!));
         },
         videoTileWasRemoved: (tileId:number) => {
             releaseVideoElement(tileId);
@@ -421,9 +415,22 @@ export const screenShare = async (status:boolean):Promise<void> => {
 
 // Logic -> we have to trigger this functions whenever the new attendee joins the meeting
 
+export const onUserPresenceChange = (cb:(attendeeId:string,present:boolean) => void) => {
+    const callback = (presentAttendeeId:string, present:boolean) => {
+    console.log(`Attendee ID: ${presentAttendeeId} Present: ${present}`);
+    if (present) {
+        attendeePresenceSet.add(presentAttendeeId);
+    } else {
+        attendeePresenceSet.delete(presentAttendeeId);
+    }
+    cb(presentAttendeeId,present);
+    };
+
+    meetingSession!.audioVideo.realtimeSubscribeToAttendeeIdPresence(callback);
+}
+
 // ***** This function creates a roster(side-navbar) in which we can see the attendee,volume,mute & signalStrength
 export const creatingRoster = () => {
-    const roster:IRoster = {};
 
     meetingSession.audioVideo.realtimeSubscribeToAttendeeIdPresence(
         (presentAttendeeId:string, present:boolean) => {
