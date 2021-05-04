@@ -312,58 +312,64 @@ export const viewOneAttendee = (videoElement:HTMLVideoElement) => {
     meetingSession.audioVideo.addObserver(observer);
 }
 
+const play = (videoElement:HTMLVideoElement) => {
+    
+} 
+
+
+
 // Through this function we can view upto 16 remote user videos
-export const viewAllAttendees = (videoElements:HTMLVideoElement[]) => {
-    // index-tileId pairs
-    const indexMap:IIndexMap={};
+// export const viewAllAttendees = (videoElements:HTMLVideoElement[]) => {
+//     // index-tileId pairs
+//     const indexMap:IIndexMap={};
 
-    const acquireVideoElement = (tileId:number) => {
-        // Return the same video element if already bound.
-        for (let i = 0; i < 16; i += 1) {
-            if (indexMap[i] === tileId) {
-                return videoElements[i];
-            }
-        }
-        // Return the next available video element.
-        for (let i = 0; i < 16; i += 1) {
-            if (!indexMap.hasOwnProperty(i)) {
-                indexMap[i] = tileId;
-                return videoElements[i];
-            }
-        }
-        throw new Error('no video element is available');
-    };
+//     const acquireVideoElement = (tileId:number) => {
+//         // Return the same video element if already bound.
+//         for (let i = 0; i < 16; i += 1) {
+//             if (indexMap[i] === tileId) {
+//                 return videoElements[i];
+//             }
+//         }
+//         // Return the next available video element.
+//         for (let i = 0; i < 16; i += 1) {
+//             if (!indexMap.hasOwnProperty(i)) {
+//                 indexMap[i] = tileId;
+//                 return videoElements[i];
+//             }
+//         }
+//         throw new Error('no video element is available');
+//     };
 
-    const releaseVideoElement = (tileId:number) => {
-        for (let i = 0; i < 16; i += 1) {
-            if (indexMap[i] === tileId) {
-                delete indexMap[i];
-                return;
-            }
-        }
-    };
+//     const releaseVideoElement = (tileId:number) => {
+//         for (let i = 0; i < 16; i += 1) {
+//             if (indexMap[i] === tileId) {
+//                 delete indexMap[i];
+//                 return;
+//             }
+//         }
+//     };
 
-    const observer = {
-        videoTileDidUpdate: (tileState:VideoTileState) => {
-            if (!tileState.boundAttendeeId || tileState.localTile || tileState.isContent) {
-                return;
-            }
+//     const observer = {
+//         videoTileDidUpdate: (tileState:VideoTileState) => {
+//             if (!tileState.boundAttendeeId || tileState.localTile || tileState.isContent) {
+//                 return;
+//             }
 
-            meetingSession.audioVideo.bindVideoElement(tileState.tileId!, acquireVideoElement(tileState.tileId!));
-        },
-        videoTileWasRemoved: (tileId:number) => {
-            releaseVideoElement(tileId);
-        },
-        remoteVideoSourcesDidChange: (videoSources:VideoSource[]) => {
-            videoSources.forEach((videoSource:VideoSource) => {
-              const { attendee } = videoSource;
-              console.log(`An attendee (${attendee.attendeeId} ${attendee.externalUserId}) is sending video`);
-            });
-        }
-    };
+//             meetingSession.audioVideo.bindVideoElement(tileState.tileId!, acquireVideoElement(tileState.tileId!));
+//         },
+//         videoTileWasRemoved: (tileId:number) => {
+//             releaseVideoElement(tileId);
+//         },
+//         remoteVideoSourcesDidChange: (videoSources:VideoSource[]) => {
+//             videoSources.forEach((videoSource:VideoSource) => {
+//               const { attendee } = videoSource;
+//               console.log(`An attendee (${attendee.attendeeId} ${attendee.externalUserId}) is sending video`);
+//             });
+//         }
+//     };
 
-    meetingSession.audioVideo.addObserver(observer);
-}
+//     meetingSession.audioVideo.addObserver(observer);
+// }
 
 /////////////////////////////////////////////////////////// Screen Share /////////////////////////////////////////////////////////
 
@@ -417,13 +423,11 @@ export const screenShare = async (status:boolean):Promise<void> => {
 
 export const onUserPresenceChange = (cb:(attendeeId:string,present:boolean) => void) => {
     const callback = (presentAttendeeId:string, present:boolean) => {
-    console.log(`Attendee ID: ${presentAttendeeId} Present: ${present}`);
-    if (present) {
-        attendeePresenceSet.add(presentAttendeeId);
-    } else {
-        attendeePresenceSet.delete(presentAttendeeId);
-    }
-    cb(presentAttendeeId,present);
+        console.log(`Attendee ID: ${presentAttendeeId} Present: ${present}`);
+        const date = new Date();
+        const timestamp:string = date.toLocaleTimeString();
+        attendeePresenceSet.add({presentAttendeeId,present,timestamp});
+        cb(presentAttendeeId,present);
     };
 
     meetingSession!.audioVideo.realtimeSubscribeToAttendeeIdPresence(callback);
