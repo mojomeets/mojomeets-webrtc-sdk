@@ -1,4 +1,5 @@
-export interface IMeeting{
-    meetingResponse:string;
-    attendeeResponse:string;
+export interface IMeeting {
+  meetingResponse: string;
+  attendeeResponse: string;
+  audioElement: string;
 }
