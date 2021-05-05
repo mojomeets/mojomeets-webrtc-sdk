@@ -1,3 +1,3 @@
-export interface IIndexMap{
-    [key: number]:number;
+export interface IIndexMap {
+  [key: number]: number;
 }
