@@ -474,7 +474,7 @@ export const addVideoObservers = (
       // meetingSession.audioVideo.bindVideoElement(tileState.tileId!, videoElement);
       // localTileId = tileState.tileId!;
     
-      updateTiles(meetingSession);
+      updateTiles();
     
     },
     videoTileWasRemoved: (tileId: number) => {
@@ -546,8 +546,8 @@ export const attachVideoTiles = (cb: (updatedTiles: VideoTile[]) => void) => {
   cb(tiles)
 }
 
-const updateTiles = (meetingSession:DefaultMeetingSession) => {
-  const tiles = meetingSession.audioVideo.getAllVideoTiles();
+const updateTiles = () => {
+  tiles = meetingSession.audioVideo.getAllVideoTiles();
   if(tileChangeCB){
     tileChangeCB(tiles);
   }
