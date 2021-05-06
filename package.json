@@ -1,6 +1,6 @@
 {
   "name": "mojomeets-webrtc-sdk",
-  "version": "1.0.8",
+  "version": "1.0.18",
   "description": "",
   "main": "lib/index.js",
   "scripts": {
