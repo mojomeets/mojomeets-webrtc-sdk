@@ -10,7 +10,7 @@ import {
   VideoTileState,
   VideoSource,
   MeetingSessionVideoAvailability,
-  MeetingSessionStatusCode
+  MeetingSessionStatusCode, DefaultVideoTile
 } from "amazon-chime-sdk-js";
 
 import { IMeeting } from "./interfaces/IMeeting";
@@ -286,14 +286,18 @@ export const attachVideo = (attendeeId: string, videoElement: HTMLVideoElement) 
 /////////////////////////////////////////////////////////// Screen Share /////////////////////////////////////////////////////////
 
 // This function will share the screen of local user
-export const screenShare = async (status: boolean): Promise<void> => {
+export const screenShare = async (status: boolean, videoElement: HTMLVideoElement): Promise<void> => {
+
   if (status) {
     // A browser will prompt the user to choose the screen.
     const contentShareStream = await meetingSession.audioVideo.startContentShareFromScreenCapture();
+
+    await DefaultVideoTile.connectVideoStreamToVideoElement(contentShareStream, videoElement, false);
   } else {
     await meetingSession.audioVideo.stopContentShare();
   }
 };
+
 
 ////////////////////////////////////////////////// Attendees ///////////////////////////////////////////////////////////////////////
 
