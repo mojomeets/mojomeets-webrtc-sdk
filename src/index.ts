@@ -1,3 +1,6 @@
+import AWS from 'aws-sdk/global';
+import Chime from 'aws-sdk/clients/chime';
+
 import {
   ConsoleLogger,
   DefaultDeviceController,
@@ -12,14 +15,20 @@ import {
   VideoSource,
   MeetingSessionVideoAvailability,
   MeetingSessionStatusCode,
-  DefaultVideoTile
+  DefaultVideoTile,
+  DefaultMessagingSession,
+  MessagingSessionConfiguration,
+  Message
 } from "amazon-chime-sdk-js";
 
 import { IMeeting } from "./interfaces/IMeeting";
 import { IIndexMap } from "./interfaces/IIndexMap";
 import { IRoster } from "./interfaces/IRoster";
+import {IMessaging} from "./interfaces/IMessaging";
 
 export let meetingSession: DefaultMeetingSession;
+
+export let messagingSession: DefaultMessagingSession;
 
 export const attendeePresenceSet = new Set();
 
@@ -36,7 +45,7 @@ let tileChangeCB: (updatedTiles: VideoTile[]) => void;
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
 // Creates a meeting using meetingResponse & attendeeResponse from backend
-export const createMeeting = async (meeting: IMeeting) => {
+export const createMeeting = async (meeting: IMeeting, messagingSessionParams:IMessaging) => {
   const logger: ConsoleLogger = new ConsoleLogger("MyLogger", LogLevel.INFO);
   const deviceController: DefaultDeviceController = new DefaultDeviceController(logger);
 
@@ -51,7 +60,23 @@ export const createMeeting = async (meeting: IMeeting) => {
 
   await deviceSelector();
   await startSession(meeting.audioElement);
+
+  await createMessagingSession(messagingSessionParams);
 };
+
+// Creating a messaging session
+const createMessagingSession = async (messagingSessionParams:IMessaging):Promise<void> => {
+  const logger: ConsoleLogger = new ConsoleLogger('SDK', LogLevel.INFO);
+  const chime:Chime = new Chime({ region: 'us-east-1' });
+  const endpoint = await chime.getMessagingSessionEndpoint().promise();
+
+  const userArn:string = messagingSessionParams.userArn;
+  const sessionId:string|null = messagingSessionParams.sessionId;
+  const configuration = new MessagingSessionConfiguration(userArn, sessionId, endpoint.Endpoint!.Url!, chime, AWS);
+  messagingSession = new DefaultMessagingSession(configuration, logger);
+
+  startMessagingSession();
+}
 
 /////////////////////////////////////////////////// Device Selection //////////////////////////////////////////////////////////////
 
@@ -155,6 +180,49 @@ const startSession = async (
 
   creatingRoster();
 };
+
+// This function starts a messaging session a initializes it's observers
+const startMessagingSession = (
+  cbForStartMessaging?: () => void,
+  cbForConnectingMessaging?: (reconnecting:boolean) => void,
+  cbForStopMessaging?: (event:CloseEvent) => void,
+  cbForReceiveMessage?: (message:Message) => void,
+) => {
+  const observer = {
+    messagingSessionDidStart: () => {
+      console.log('Session started');
+      if(cbForStartMessaging){
+        cbForStartMessaging();
+      }
+    },
+    messagingSessionDidStartConnecting: (reconnecting:boolean) => {
+      if(cbForConnectingMessaging){
+        cbForConnectingMessaging(reconnecting);
+      }
+      if (reconnecting) {
+        console.log('Start reconnecting');
+      } else {
+        console.log('Start connecting');
+      }
+    },
+    messagingSessionDidStop: (event:CloseEvent) => {
+      if(cbForStopMessaging){
+        cbForStopMessaging(event);
+      }
+      console.log(`Closed: ${event.code} ${event.reason}`);
+    },
+    messagingSessionDidReceiveMessage: (message:Message) => {
+      if(cbForReceiveMessage){
+        cbForReceiveMessage(message);
+      }
+      console.log(`Receive message type ${message.type}`);
+    }
+  };
+  
+  messagingSession.addObserver(observer);
+
+  messagingSession.start();
+}
 
 //////////////////////////////////////////////////////////// Audio //////////////////////////////////////////////////////////////////////
 
@@ -491,6 +559,18 @@ export const addVideoObservers = (
   meetingSession.audioVideo.addObserver(videoObserver);
 };
 
+export const attachVideoTiles = (cb: (updatedTiles: VideoTile[]) => void) => {
+  tileChangeCB = cb;
+  cb(tiles)
+}
+
+const updateTiles = () => {
+  tiles = meetingSession.audioVideo.getAllVideoTiles();
+  if(tileChangeCB){
+    tileChangeCB(tiles);
+  }
+}
+
 export const addScreenShareObservers = (
   cbForVideoDidUpdate?: (tileState: VideoTileState) => void,
   cbForStartShare?: () => void,
@@ -539,16 +619,3 @@ export const addScreenShareObservers = (
   meetingSession.audioVideo.addObserver(screenShareObserver);
 };
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const attachVideoTiles = (cb: (updatedTiles: VideoTile[]) => void) => {
-  tileChangeCB = cb;
-  cb(tiles)
-}
-
-const updateTiles = () => {
-  tiles = meetingSession.audioVideo.getAllVideoTiles();
-  if(tileChangeCB){
-    tileChangeCB(tiles);
-  }
-}
