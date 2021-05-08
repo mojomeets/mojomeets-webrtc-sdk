@@ -31,13 +31,11 @@ let localTileId: number | null;
 
 let roasterChangeCB: (updatedRoster: IRoster) => void;
 
-let tileChangeCB: (updatedTiles: VideoTile[]) => void;
-
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
 // Creates a meeting using meetingResponse & attendeeResponse from backend
 export const createMeeting = async (meeting: IMeeting) => {
-  const logger: ConsoleLogger = new ConsoleLogger("MyLogger", LogLevel.INFO);
+  const logger: ConsoleLogger = new ConsoleLogger("Mojomeets logger", LogLevel.INFO);
   const deviceController: DefaultDeviceController = new DefaultDeviceController(logger);
 
   // You need responses from server-side Chime API. See below for details.
@@ -48,6 +46,8 @@ export const createMeeting = async (meeting: IMeeting) => {
 
   // In the usage examples below, you will use this meetingSession object.
   meetingSession = new DefaultMeetingSession(configuration, logger, deviceController);
+  // @ts-ignore
+  window.meetingSession = meetingSession;
 
   await deviceSelector();
   await startSession(meeting.audioElement);
@@ -268,31 +268,19 @@ export const toggleVideo = (videoElement: HTMLVideoElement, state: boolean) => {
 //   meetingSession.audioVideo.addObserver(observer);
 // };
 
-const onVideoPlay = (videoElement: HTMLVideoElement) => {
-  const observer = {
-    // videoTileDidUpdate is called whenever a new tile is created or tileState changes.
-    videoTileDidUpdate: (tileState: VideoTileState) => {
-      // Ignore a tile without attendee ID, a local tile (your video), and a content share.
-      if (!tileState.boundAttendeeId || tileState.localTile || tileState.isContent) {
-        return;
-      }
-      meetingSession.audioVideo.bindVideoElement(tileState.tileId!, videoElement);
-    }
-  };
 
-  meetingSession.audioVideo.addObserver(observer);
+export const getAllVideoTiles = () => {
+  return meetingSession.audioVideo.getAllRemoteVideoTiles();
 };
 
-export const attachVideo = (attendeeId: string, videoElement: HTMLVideoElement) => {
-  if (roster.hasOwnProperty(attendeeId)) {
-    roster[attendeeId].play(videoElement);
-  }
+export const getLocalVideoTile = () => {
+  return meetingSession.audioVideo.getLocalVideoTile();
 };
 
 /////////////////////////////////////////////////////////// Screen Share /////////////////////////////////////////////////////////
 
 // This function will share the screen of local user
-export const screenShare = async (status: boolean,videoElement:HTMLVideoElement): Promise<void> => {
+export const screenShare = async (status: boolean, videoElement: HTMLVideoElement): Promise<void> => {
 
   if (status) {
     // A browser will prompt the user to choose the screen.
@@ -357,8 +345,7 @@ export const creatingRoster = () => {
           roster[attendeeId] = {
             volume,
             muted,
-            signalStrength,
-            play: onVideoPlay
+            signalStrength
           };
         }
         if (roasterChangeCB)
@@ -454,18 +441,17 @@ export const attachAlertObservers = (
 };
 
 export const addVideoObservers = (
-  videoElement: HTMLVideoElement,
-  cbForVideoDidUpdate?: (tileState: VideoTileState) => void,
+  cbForVideoDidUpdate?: (tileState: number) => void,
   cbForVideoWasRemoved?: (tileId: number) => void
 ) => {
   const videoObserver = {
     videoTileDidUpdate: (tileState: VideoTileState) => {
-      if (cbForVideoDidUpdate) {
-        cbForVideoDidUpdate(tileState);
-      }
       // Ignore a tile without attendee ID and other attendee's tile.
-      if (!tileState.boundAttendeeId || !tileState.localTile) {
+      if (!tileState.boundAttendeeId || !tileState.tileId) {
         return;
+      }
+      if (cbForVideoDidUpdate) {
+        cbForVideoDidUpdate(tileState.tileId);
       }
 
       // videoTileDidUpdate is invoked when you call startLocalVideoTile or tileState changes.
@@ -473,9 +459,7 @@ export const addVideoObservers = (
       // console.log(`If you called stopLocalVideoTile, ${tileState.active} is false.`);
       // meetingSession.audioVideo.bindVideoElement(tileState.tileId!, videoElement);
       // localTileId = tileState.tileId!;
-    
-      updateTiles();
-    
+
     },
     videoTileWasRemoved: (tileId: number) => {
       if (cbForVideoWasRemoved) {
@@ -540,15 +524,3 @@ export const addScreenShareObservers = (
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-export const attachVideoTiles = (cb: (updatedTiles: VideoTile[]) => void) => {
-  tileChangeCB = cb;
-  cb(tiles)
-}
-
-const updateTiles = () => {
-  tiles = meetingSession.audioVideo.getAllVideoTiles();
-  if(tileChangeCB){
-    tileChangeCB(tiles);
-  }
-}
