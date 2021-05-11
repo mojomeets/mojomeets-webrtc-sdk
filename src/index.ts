@@ -9,10 +9,9 @@ import {
   DefaultActiveSpeakerPolicy,
   VideoTileState,
   VideoTile,
-  VideoSource,
   MeetingSessionVideoAvailability,
   MeetingSessionStatusCode,
-  DefaultVideoTile
+  DefaultVideoTile,
 } from "amazon-chime-sdk-js";
 
 import { IMeeting } from "./interfaces/IMeeting";
@@ -34,7 +33,13 @@ let roasterChangeCB: (updatedRoster: IRoster) => void;
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
 // Creates a meeting using meetingResponse & attendeeResponse from backend
-export const createMeeting = async (meeting: IMeeting) => {
+export const createMeeting = async (
+  meeting: IMeeting,
+  cbForStart?: () => void,
+  cbForStop?: (sessionStatus: MeetingSessionStatus) => void,
+  cbForConnecting?: (reconnecting: boolean) => void,
+  cbForUserJoined?: (userId: string) => void,
+  cbForUserLeft?: (userId: string) => void) => {
   const logger: ConsoleLogger = new ConsoleLogger("Mojomeets logger", LogLevel.INFO);
   const deviceController: DefaultDeviceController = new DefaultDeviceController(logger);
 
@@ -50,7 +55,7 @@ export const createMeeting = async (meeting: IMeeting) => {
   window.meetingSession = meetingSession;
 
   await deviceSelector();
-  await startSession(meeting.audioElement);
+  await startSession(meeting.audioElement, cbForStart, cbForStop, cbForConnecting, cbForUserJoined, cbForUserLeft);
 };
 
 /////////////////////////////////////////////////// Device Selection //////////////////////////////////////////////////////////////
@@ -119,7 +124,9 @@ const startSession = async (
   audioElement: string,
   cbForStart?: () => void,
   cbForStop?: (sessionStatus: MeetingSessionStatus) => void,
-  cbForConnecting?: (reconnecting: boolean) => void
+  cbForConnecting?: (reconnecting: boolean) => void,
+  cbForUserJoined?: (userId: string) => void,
+  cbForUserLeft?: (userId: string) => void
 ) => {
   const audioTag = document.getElementById(audioElement) as HTMLAudioElement;
   await meetingSession.audioVideo.bindAudioElement(audioTag);
@@ -153,7 +160,7 @@ const startSession = async (
 
   meetingSession.audioVideo.addObserver(lifecycleObserver);
 
-  creatingRoster();
+  creatingRoster(cbForUserJoined, cbForUserLeft);
 };
 
 //////////////////////////////////////////////////////////// Audio //////////////////////////////////////////////////////////////////////
@@ -316,9 +323,14 @@ export const attachRosterChangeListener = (cb: (updatedRoster: IRoster) => void)
 
 
 // ***** This function creates a roster(side-navbar) in which we can see the attendee,volume,mute & signalStrength
-export const creatingRoster = () => {
+export const creatingRoster = (
+  cbForUserJoined?: (userId: string) => void,
+  cbForUserLeft?: (userId: string) => void) => {
   meetingSession.audioVideo.realtimeSubscribeToAttendeeIdPresence((presentAttendeeId: string, present: boolean) => {
     if (!present) {
+      if (cbForUserLeft) {
+        cbForUserLeft(presentAttendeeId);
+      }
       delete roster[presentAttendeeId];
       if (roasterChangeCB)
         roasterChangeCB(roster);
@@ -340,6 +352,9 @@ export const creatingRoster = () => {
           roster[attendeeId].muted = muted; // A booolean
           roster[attendeeId].signalStrength = signalStrength; // 0 (no signal), 0.5 (weak), 1 (strong)
         } else {
+          if (cbForUserJoined) {
+            cbForUserJoined(attendeeId);
+          }
           // Add an attendee.
           // Optional: You can fetch more data, such as attendee name, from your server application and set them here.
           roster[attendeeId] = {
