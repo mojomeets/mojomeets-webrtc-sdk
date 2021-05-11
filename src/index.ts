@@ -1,6 +1,3 @@
-import AWS from 'aws-sdk/global';
-import Chime from 'aws-sdk/clients/chime';
-
 import {
   ConsoleLogger,
   DefaultDeviceController,
@@ -12,23 +9,16 @@ import {
   DefaultActiveSpeakerPolicy,
   VideoTileState,
   VideoTile,
-  VideoSource,
   MeetingSessionVideoAvailability,
   MeetingSessionStatusCode,
   DefaultVideoTile,
-  DefaultMessagingSession,
-  MessagingSessionConfiguration,
-  Message
 } from "amazon-chime-sdk-js";
 
 import { IMeeting } from "./interfaces/IMeeting";
 import { IIndexMap } from "./interfaces/IIndexMap";
 import { IRoster } from "./interfaces/IRoster";
-import {IMessaging} from "./interfaces/IMessaging";
 
 export let meetingSession: DefaultMeetingSession;
-
-export let messagingSession: DefaultMessagingSession;
 
 export const attendeePresenceSet = new Set();
 
@@ -47,8 +37,14 @@ let attendeeDidLeave: (attendeeLeaveId: string) => void;
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
 // Creates a meeting using meetingResponse & attendeeResponse from backend
-export const createMeeting = async (meeting: IMeeting, messagingSessionParams:IMessaging) => {
-  const logger: ConsoleLogger = new ConsoleLogger("MyLogger", LogLevel.INFO);
+export const createMeeting = async (
+  meeting: IMeeting,
+  cbForStart?: () => void,
+  cbForStop?: (sessionStatus: MeetingSessionStatus) => void,
+  cbForConnecting?: (reconnecting: boolean) => void,
+  cbForUserJoined?: (userId: string) => void,
+  cbForUserLeft?: (userId: string) => void) => {
+  const logger: ConsoleLogger = new ConsoleLogger("Mojomeets logger", LogLevel.INFO);
   const deviceController: DefaultDeviceController = new DefaultDeviceController(logger);
 
   // You need responses from server-side Chime API. See below for details.
@@ -63,24 +59,8 @@ export const createMeeting = async (meeting: IMeeting, messagingSessionParams:IM
   window.meetingSession = meetingSession;
 
   await deviceSelector();
-  await startSession(meeting.audioElement);
-
-  await createMessagingSession(messagingSessionParams);
+  await startSession(meeting.audioElement, cbForStart, cbForStop, cbForConnecting, cbForUserJoined, cbForUserLeft);
 };
-
-// Creating a messaging session
-const createMessagingSession = async (messagingSessionParams:IMessaging):Promise<void> => {
-  const logger: ConsoleLogger = new ConsoleLogger('SDK', LogLevel.INFO);
-  const chime:Chime = new Chime({ region: 'us-east-1' });
-  const endpoint = await chime.getMessagingSessionEndpoint().promise();
-
-  const userArn:string = messagingSessionParams.userArn;
-  const sessionId:string|null = messagingSessionParams.sessionId;
-  const configuration = new MessagingSessionConfiguration(userArn, sessionId, endpoint.Endpoint!.Url!, chime, AWS);
-  messagingSession = new DefaultMessagingSession(configuration, logger);
-
-  startMessagingSession();
-}
 
 /////////////////////////////////////////////////// Device Selection //////////////////////////////////////////////////////////////
 
@@ -148,7 +128,9 @@ const startSession = async (
   audioElement: string,
   cbForStart?: () => void,
   cbForStop?: (sessionStatus: MeetingSessionStatus) => void,
-  cbForConnecting?: (reconnecting: boolean) => void
+  cbForConnecting?: (reconnecting: boolean) => void,
+  cbForUserJoined?: (userId: string) => void,
+  cbForUserLeft?: (userId: string) => void
 ) => {
   const audioTag = document.getElementById(audioElement) as HTMLAudioElement;
   await meetingSession.audioVideo.bindAudioElement(audioTag);
@@ -182,51 +164,8 @@ const startSession = async (
 
   meetingSession.audioVideo.addObserver(lifecycleObserver);
 
-  creatingRoster();
+  creatingRoster(cbForUserJoined, cbForUserLeft);
 };
-
-// This function starts a messaging session a initializes it's observers
-const startMessagingSession = (
-  cbForStartMessaging?: () => void,
-  cbForConnectingMessaging?: (reconnecting:boolean) => void,
-  cbForStopMessaging?: (event:CloseEvent) => void,
-  cbForReceiveMessage?: (message:Message) => void,
-) => {
-  const observer = {
-    messagingSessionDidStart: () => {
-      console.log('Session started');
-      if(cbForStartMessaging){
-        cbForStartMessaging();
-      }
-    },
-    messagingSessionDidStartConnecting: (reconnecting:boolean) => {
-      if(cbForConnectingMessaging){
-        cbForConnectingMessaging(reconnecting);
-      }
-      if (reconnecting) {
-        console.log('Start reconnecting');
-      } else {
-        console.log('Start connecting');
-      }
-    },
-    messagingSessionDidStop: (event:CloseEvent) => {
-      if(cbForStopMessaging){
-        cbForStopMessaging(event);
-      }
-      console.log(`Closed: ${event.code} ${event.reason}`);
-    },
-    messagingSessionDidReceiveMessage: (message:Message) => {
-      if(cbForReceiveMessage){
-        cbForReceiveMessage(message);
-      }
-      console.log(`Receive message type ${message.type}`);
-    }
-  };
-  
-  messagingSession.addObserver(observer);
-
-  messagingSession.start();
-}
 
 //////////////////////////////////////////////////////////// Audio //////////////////////////////////////////////////////////////////////
 
@@ -393,9 +332,14 @@ export const attendeeLeaveListener = (cb: (attendeeLeaveId: string) => void) => 
 
 
 // ***** This function creates a roster(side-navbar) in which we can see the attendee,volume,mute & signalStrength
-export const creatingRoster = () => {
+export const creatingRoster = (
+  cbForUserJoined?: (userId: string) => void,
+  cbForUserLeft?: (userId: string) => void) => {
   meetingSession.audioVideo.realtimeSubscribeToAttendeeIdPresence((presentAttendeeId: string, present: boolean) => {
     if (!present) {
+      if (cbForUserLeft) {
+        cbForUserLeft(presentAttendeeId);
+      }
       delete roster[presentAttendeeId];
       if (roasterChangeCB)
         roasterChangeCB(roster);
@@ -421,6 +365,9 @@ export const creatingRoster = () => {
           roster[attendeeId].muted = muted; // A booolean
           roster[attendeeId].signalStrength = signalStrength; // 0 (no signal), 0.5 (weak), 1 (strong)
         } else {
+          if (cbForUserJoined) {
+            cbForUserJoined(attendeeId);
+          }
           // Add an attendee.
           // Optional: You can fetch more data, such as attendee name, from your server application and set them here.
           roster[attendeeId] = {
@@ -556,18 +503,6 @@ export const addVideoObservers = (
   meetingSession.audioVideo.addObserver(videoObserver);
 };
 
-export const attachVideoTiles = (cb: (updatedTiles: VideoTile[]) => void) => {
-  tileChangeCB = cb;
-  cb(tiles)
-}
-
-const updateTiles = () => {
-  tiles = meetingSession.audioVideo.getAllVideoTiles();
-  if(tileChangeCB){
-    tileChangeCB(tiles);
-  }
-}
-
 export const addScreenShareObservers = (
   cbForVideoDidUpdate?: (tileState: VideoTileState) => void,
   cbForStartShare?: () => void,
@@ -616,3 +551,4 @@ export const addScreenShareObservers = (
   meetingSession.audioVideo.addObserver(screenShareObserver);
 };
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
