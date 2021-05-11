@@ -40,6 +40,10 @@ let localTileId: number | null;
 
 let roasterChangeCB: (updatedRoster: IRoster) => void;
 
+let attendeeLeaveId: string;
+
+let attendeeDidLeave: (attendeeLeaveId: string) => void;
+
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
 // Creates a meeting using meetingResponse & attendeeResponse from backend
@@ -382,6 +386,11 @@ export const attachRosterChangeListener = (cb: (updatedRoster: IRoster) => void)
   cb(roster);
 };
 
+export const attendeeLeaveListener = (cb: (attendeeLeaveId: string) => void) => {
+  attendeeDidLeave = cb;
+  cb(attendeeLeaveId);
+}
+
 
 // ***** This function creates a roster(side-navbar) in which we can see the attendee,volume,mute & signalStrength
 export const creatingRoster = () => {
@@ -390,6 +399,10 @@ export const creatingRoster = () => {
       delete roster[presentAttendeeId];
       if (roasterChangeCB)
         roasterChangeCB(roster);
+      if(attendeeDidLeave){
+        attendeeLeaveId=presentAttendeeId;
+        attendeeDidLeave(attendeeLeaveId);
+      }
       return;
     }
 
