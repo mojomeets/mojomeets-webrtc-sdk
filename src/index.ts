@@ -16,7 +16,6 @@ import {
 } from "amazon-chime-sdk-js";
 
 import { IMeeting } from "./interfaces/IMeeting";
-import { IIndexMap } from "./interfaces/IIndexMap";
 import { IRoster } from "./interfaces/IRoster";
 import { IMessage } from "./interfaces/IMessage";
 
@@ -25,9 +24,7 @@ export let meetingSession: DefaultMeetingSession;
 
 export const attendeePresenceSet = new Set();
 
-export const roster: IRoster = {};
-
-export let tiles: VideoTile[] = [];
+const roster: IRoster = {};
 
 let localTileId: number | null;
 
@@ -37,11 +34,9 @@ let attendeeLeaveId: string;
 
 let attendeeDidLeave: (attendeeLeaveId: string) => void;
 
-export const messagesArray:IMessage[] = [];
+let meetingID: string;
 
-let meetingID:string;
-
-let messageArrayChangeCB: (updatedMessages: IMessage[]) => void;
+let messageReceivedChangeCB: (newMessage: IMessage) => void;
 
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
@@ -58,7 +53,7 @@ export const createMeeting = async (
 
   // You need responses from server-side Chime API. See below for details.
   const meetingResponse = JSON.parse(meeting.meetingResponse);
-  meetingID= meetingResponse.meetingID;
+  meetingID = meetingResponse.meetingID;
   const attendeeResponse = JSON.parse(meeting.attendeeResponse);
 
   const configuration: MeetingSessionConfiguration = new MeetingSessionConfiguration(meetingResponse, attendeeResponse);
@@ -150,6 +145,7 @@ const startSession = async (
   const lifecycleObserver = {
     audioVideoDidStart: () => {
       console.log("Started");
+      receiveMessages();
       if (cbForStart) {
         cbForStart();
       }
@@ -338,25 +334,27 @@ export const attachRosterChangeListener = (cb: (updatedRoster: IRoster) => void)
 export const attendeeLeaveListener = (cb: (attendeeLeaveId: string) => void) => {
   attendeeDidLeave = cb;
   cb(attendeeLeaveId);
-}
+};
 
 // ***** This function creates a roster(side-navbar) in which we can see the attendee,volume,mute & signalStrength
-export const creatingRoster = (
+const creatingRoster = (
   cbForUserJoined?: (userId: string) => void,
   cbForUserLeft?: (userId: string) => void) => {
-  meetingSession.audioVideo.realtimeSubscribeToAttendeeIdPresence((presentAttendeeId: string, present: boolean, externalUserId?:string) => {
-    
+  meetingSession.audioVideo.realtimeSubscribeToAttendeeIdPresence((presentAttendeeId: string, present: boolean, externalUserId?: string) => {
+
     console.log(externalUserId);
 
     if (!present) {
       if (cbForUserLeft) {
         cbForUserLeft(presentAttendeeId);
       }
-      delete roster[presentAttendeeId];
+      // delete roster[presentAttendeeId];
+      if (roster[presentAttendeeId])
+        roster[presentAttendeeId].isPresent = false;
       if (roasterChangeCB)
         roasterChangeCB(roster);
-      if(attendeeDidLeave){
-        attendeeLeaveId=presentAttendeeId;
+      if (attendeeDidLeave) {
+        attendeeLeaveId = presentAttendeeId;
         attendeeDidLeave(attendeeLeaveId);
       }
       return;
@@ -387,7 +385,8 @@ export const creatingRoster = (
             externalUserId,
             volume,
             muted,
-            signalStrength
+            signalStrength,
+            isPresent: true
           };
         }
         if (roasterChangeCB)
@@ -567,42 +566,43 @@ export const addScreenShareObservers = (
 
 ///////////////////////////////////////////////////////// Messages //////////////////////////////////////////////////////////////
 
-export const sendMessage = (message:string, attendeeId:string) => {
+export const sendMessage = (message: string, attendeeId: string) => {
   const date = new Date();
   const timestamp: string = date.toLocaleTimeString();
-  const messageObject:IMessage = {
-    userName:attendeeId,
-    message:message,
-    timestamp:timestamp
+  const messageObject: IMessage = {
+    userName: attendeeId,
+    message,
+    timestamp
   };
 
-  meetingSession.audioVideo.realtimeSendDataMessage(meetingID,messageObject);
- 
-  messagesArray.push(messageObject);
-}
+  meetingSession.audioVideo.realtimeSendDataMessage(meetingID, messageObject, 1000);
 
-export const messagesChangeListener = (cb: (updatedMessages: IMessage[]) => void) => {
-  messageArrayChangeCB = cb;
-  cb(messagesArray);
-}
+  if (messageReceivedChangeCB) {
+    messageReceivedChangeCB(messageObject);
+  }
+};
 
-export const receiveMessages = () => {
+export const messagesChangeListener = (cb: (newMessage: IMessage) => void) => {
+  messageReceivedChangeCB = cb;
+};
+
+const receiveMessages = () => {
   const date = new Date();
   const timestamp: string = date.toLocaleTimeString();
-  meetingSession.audioVideo.realtimeSubscribeToReceiveDataMessage(meetingID,(dataMessage:DataMessage) => {
-    console.log(dataMessage);
+  meetingSession.audioVideo.realtimeSubscribeToReceiveDataMessage(meetingID, (dataMessage: DataMessage) => {
+    console.log({ dataMessage });
 
-    const messageObject:IMessage = {
-      userName:dataMessage.senderExternalUserId,
-      message:dataMessage.data,
-      timestamp:timestamp
+    const msgStr = Buffer.from(dataMessage.data.buffer).toString();
+
+    const messageObject: IMessage = {
+      userName: dataMessage.senderExternalUserId,
+      message: msgStr,
+      timestamp
     };
-    
-    messagesArray.push(messageObject);
-    
-    if(messageArrayChangeCB){
-      messageArrayChangeCB(messagesArray);
+
+    if (messageReceivedChangeCB) {
+      messageReceivedChangeCB(messageObject);
     }
-  })
-}
+  });
+};
 

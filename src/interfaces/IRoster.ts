@@ -4,5 +4,6 @@ export interface IRoster {
     volume: number | null;
     muted: boolean | null;
     signalStrength: number | null;
+    isPresent: boolean
   };
 }
