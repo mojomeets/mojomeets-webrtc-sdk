@@ -12,11 +12,14 @@ import {
   MeetingSessionVideoAvailability,
   MeetingSessionStatusCode,
   DefaultVideoTile,
+  DataMessage
 } from "amazon-chime-sdk-js";
 
 import { IMeeting } from "./interfaces/IMeeting";
 import { IIndexMap } from "./interfaces/IIndexMap";
 import { IRoster } from "./interfaces/IRoster";
+import { IMessage } from "./interfaces/IMessage";
+
 
 export let meetingSession: DefaultMeetingSession;
 
@@ -34,6 +37,12 @@ let attendeeLeaveId: string;
 
 let attendeeDidLeave: (attendeeLeaveId: string) => void;
 
+export const messagesArray:IMessage[] = [];
+
+let meetingID:string;
+
+let messageArrayChangeCB: (updatedMessages: IMessage[]) => void;
+
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
 // Creates a meeting using meetingResponse & attendeeResponse from backend
@@ -49,6 +58,7 @@ export const createMeeting = async (
 
   // You need responses from server-side Chime API. See below for details.
   const meetingResponse = JSON.parse(meeting.meetingResponse);
+  meetingID= meetingResponse.meetingID;
   const attendeeResponse = JSON.parse(meeting.attendeeResponse);
 
   const configuration: MeetingSessionConfiguration = new MeetingSessionConfiguration(meetingResponse, attendeeResponse);
@@ -330,12 +340,14 @@ export const attendeeLeaveListener = (cb: (attendeeLeaveId: string) => void) => 
   cb(attendeeLeaveId);
 }
 
-
 // ***** This function creates a roster(side-navbar) in which we can see the attendee,volume,mute & signalStrength
 export const creatingRoster = (
   cbForUserJoined?: (userId: string) => void,
   cbForUserLeft?: (userId: string) => void) => {
-  meetingSession.audioVideo.realtimeSubscribeToAttendeeIdPresence((presentAttendeeId: string, present: boolean) => {
+  meetingSession.audioVideo.realtimeSubscribeToAttendeeIdPresence((presentAttendeeId: string, present: boolean, externalUserId?:string) => {
+    
+    console.log(externalUserId);
+
     if (!present) {
       if (cbForUserLeft) {
         cbForUserLeft(presentAttendeeId);
@@ -361,6 +373,7 @@ export const creatingRoster = (
 
         if (roster.hasOwnProperty(attendeeId)) {
           // A null value for any field means that it has not changed.
+          roster[attendeeId].externalUserId = externalUserId;
           roster[attendeeId].volume = volume; // a fraction between 0 and 1
           roster[attendeeId].muted = muted; // A booolean
           roster[attendeeId].signalStrength = signalStrength; // 0 (no signal), 0.5 (weak), 1 (strong)
@@ -371,6 +384,7 @@ export const creatingRoster = (
           // Add an attendee.
           // Optional: You can fetch more data, such as attendee name, from your server application and set them here.
           roster[attendeeId] = {
+            externalUserId,
             volume,
             muted,
             signalStrength
@@ -551,4 +565,44 @@ export const addScreenShareObservers = (
   meetingSession.audioVideo.addObserver(screenShareObserver);
 };
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////// Messages //////////////////////////////////////////////////////////////
+
+export const sendMessage = (message:string, attendeeId:string) => {
+  const date = new Date();
+  const timestamp: string = date.toLocaleTimeString();
+  const messageObject:IMessage = {
+    userName:attendeeId,
+    message:message,
+    timestamp:timestamp
+  };
+
+  meetingSession.audioVideo.realtimeSendDataMessage(meetingID,messageObject);
+ 
+  messagesArray.push(messageObject);
+}
+
+export const messagesChangeListener = (cb: (updatedMessages: IMessage[]) => void) => {
+  messageArrayChangeCB = cb;
+  cb(messagesArray);
+}
+
+export const receiveMessages = () => {
+  const date = new Date();
+  const timestamp: string = date.toLocaleTimeString();
+  meetingSession.audioVideo.realtimeSubscribeToReceiveDataMessage(meetingID,(dataMessage:DataMessage) => {
+    console.log(dataMessage);
+
+    const messageObject:IMessage = {
+      userName:dataMessage.senderExternalUserId,
+      message:dataMessage.data,
+      timestamp:timestamp
+    };
+    
+    messagesArray.push(messageObject);
+    
+    if(messageArrayChangeCB){
+      messageArrayChangeCB(messagesArray);
+    }
+  })
+}
+
