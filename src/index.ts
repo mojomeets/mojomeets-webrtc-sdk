@@ -73,32 +73,26 @@ export const createMeeting = async (
 
 // This function selects the device for audioInput, audioOutput & videoInput
 export const deviceSelector = async (): Promise<void> => {
-  let audioInputDevices: MediaDeviceInfo[];
   // let audioOutputDevices: MediaDeviceInfo[];
-  let videoInputDevices: MediaDeviceInfo[];
 
-  let audioInputDeviceInfo: MediaDeviceInfo;
-  let audioOutputDeviceInfo: MediaDeviceInfo;
-  let videoInputDeviceInfo: MediaDeviceInfo;
+  // let audioInputDeviceInfo: MediaDeviceInfo;
+  // let audioOutputDeviceInfo: MediaDeviceInfo;
 
-  audioInputDevices = await meetingSession.audioVideo.listAudioInputDevices();
+  const audioInputDevices = await meetingSession.audioVideo.listAudioInputDevices();
   // audioOutputDevices = await meetingSession.audioVideo.listAudioOutputDevices();
-  videoInputDevices = await meetingSession.audioVideo.listVideoInputDevices();
 
   // An array of MediaDeviceInfo objects
-  audioInputDevices.forEach((mediaDeviceInfo) => {
-    console.log(`Device ID: ${mediaDeviceInfo.deviceId} Microphone: ${mediaDeviceInfo.label}`);
-  });
+  // audioInputDevices.forEach((mediaDeviceInfo) => {
+  //   console.log(`Device ID: ${mediaDeviceInfo.deviceId} Microphone: ${mediaDeviceInfo.label}`);
+  // });
 
   // Choose audio input and audio output devices by passing the deviceId of a MediaDeviceInfo object.
-  audioInputDeviceInfo = audioInputDevices[0];
-  await meetingSession.audioVideo.chooseAudioInputDevice(audioInputDeviceInfo.deviceId);
+  // const audioInputDeviceInfo = audioInputDevices[0];
+  await meetingSession.audioVideo.chooseAudioInputDevice(audioInputDevices[0].deviceId);
 
   // audioOutputDeviceInfo = audioOutputDevices[0];
   // await meetingSession.audioVideo.chooseAudioOutputDevice(audioOutputDeviceInfo.deviceId);
 
-  videoInputDeviceInfo = videoInputDevices[0];
-  await meetingSession.audioVideo.chooseVideoInputDevice(videoInputDeviceInfo.deviceId);
 
   // You can pass null to choose none. If the previously chosen camera has an LED light on, it will turn off indicating the camera is no longer capturing.
   // await meetingSession.audioVideo.chooseVideoInputDevice(null);
@@ -110,17 +104,17 @@ export const deviceSelector = async (): Promise<void> => {
         console.log(`Device ID: ${mediaDeviceInfo.deviceId} Microphone: ${mediaDeviceInfo.label}`);
       });
 
-      audioInputDeviceInfo = freshAudioInputDeviceList[0];
-      await meetingSession.audioVideo.chooseAudioInputDevice(audioInputDeviceInfo.deviceId);
+      // const audioInputDeviceInfo = freshAudioInputDeviceList[0];
+      await meetingSession.audioVideo.chooseAudioInputDevice(freshAudioInputDeviceList[0].deviceId);
     },
     audioOutputsChanged: async (freshAudioOutputDeviceList: MediaDeviceInfo[]): Promise<void> => {
       console.log("Audio outputs updated: ", freshAudioOutputDeviceList);
-      audioOutputDeviceInfo = freshAudioOutputDeviceList[0];
-      await meetingSession.audioVideo.chooseAudioOutputDevice(audioOutputDeviceInfo.deviceId);
+      // audioOutputDeviceInfo = freshAudioOutputDeviceList[0];
+      await meetingSession.audioVideo.chooseAudioOutputDevice(freshAudioOutputDeviceList[0].deviceId);
     },
     videoInputsChanged: async (freshVideoInputDeviceList: MediaDeviceInfo[]): Promise<void> => {
       console.log("Video inputs updated: ", freshVideoInputDeviceList);
-      videoInputDeviceInfo = freshVideoInputDeviceList[0];
+      const videoInputDeviceInfo = freshVideoInputDeviceList[0];
       await meetingSession.audioVideo.chooseVideoInputDevice(videoInputDeviceInfo.deviceId);
     }
   };
@@ -171,8 +165,8 @@ const startSession = async (
   };
 
   meetingSession.audioVideo.addObserver(lifecycleObserver);
-
   creatingRoster(cbForUserJoined, cbForUserLeft);
+  await deviceSelector();
 };
 
 //////////////////////////////////////////////////////////// Audio //////////////////////////////////////////////////////////////////////
@@ -263,7 +257,10 @@ export const mostActiveSpeaker = (callback: (attendeeId: string[]) => void) => {
 export const toggleVideo = async (videoElement: HTMLVideoElement, state: boolean) => {
   if (state) {
     if(!isVideoDeviceSelected){
-      await deviceSelector();
+      const videoInputDevices = await meetingSession.audioVideo.listVideoInputDevices();
+      const videoInputDeviceInfo = videoInputDevices[0];
+      await meetingSession.audioVideo.chooseVideoInputDevice(videoInputDeviceInfo.deviceId);
+
       isVideoDeviceSelected = true;
     }
     meetingSession.audioVideo.startLocalVideoTile();
