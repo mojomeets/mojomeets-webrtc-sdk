@@ -38,6 +38,8 @@ let meetingID: string;
 
 let messageReceivedChangeCB: (newMessage: IMessage) => void;
 
+let isVideoDeviceSelected: boolean = false;
+
 //////////////////////////////////////////////////// Creating a Meeting //////////////////////////////////////////////////////////
 
 // Creates a meeting using meetingResponse & attendeeResponse from backend
@@ -63,7 +65,7 @@ export const createMeeting = async (
   // @ts-ignore
   window.meetingSession = meetingSession;
 
-  await deviceSelector();
+  // await deviceSelector();
   await startSession(meeting.audioElement, cbForStart, cbForStop, cbForConnecting, cbForUserJoined, cbForUserLeft);
 };
 
@@ -72,7 +74,7 @@ export const createMeeting = async (
 // This function selects the device for audioInput, audioOutput & videoInput
 export const deviceSelector = async (): Promise<void> => {
   let audioInputDevices: MediaDeviceInfo[];
-  let audioOutputDevices: MediaDeviceInfo[];
+  // let audioOutputDevices: MediaDeviceInfo[];
   let videoInputDevices: MediaDeviceInfo[];
 
   let audioInputDeviceInfo: MediaDeviceInfo;
@@ -80,7 +82,7 @@ export const deviceSelector = async (): Promise<void> => {
   let videoInputDeviceInfo: MediaDeviceInfo;
 
   audioInputDevices = await meetingSession.audioVideo.listAudioInputDevices();
-  audioOutputDevices = await meetingSession.audioVideo.listAudioOutputDevices();
+  // audioOutputDevices = await meetingSession.audioVideo.listAudioOutputDevices();
   videoInputDevices = await meetingSession.audioVideo.listVideoInputDevices();
 
   // An array of MediaDeviceInfo objects
@@ -92,8 +94,8 @@ export const deviceSelector = async (): Promise<void> => {
   audioInputDeviceInfo = audioInputDevices[0];
   await meetingSession.audioVideo.chooseAudioInputDevice(audioInputDeviceInfo.deviceId);
 
-  audioOutputDeviceInfo = audioOutputDevices[0];
-  await meetingSession.audioVideo.chooseAudioOutputDevice(audioOutputDeviceInfo.deviceId);
+  // audioOutputDeviceInfo = audioOutputDevices[0];
+  // await meetingSession.audioVideo.chooseAudioOutputDevice(audioOutputDeviceInfo.deviceId);
 
   videoInputDeviceInfo = videoInputDevices[0];
   await meetingSession.audioVideo.chooseVideoInputDevice(videoInputDeviceInfo.deviceId);
@@ -258,8 +260,12 @@ export const mostActiveSpeaker = (callback: (attendeeId: string[]) => void) => {
 /////////////////////////////////////////////////////////// Video /////////////////////////////////////////////////////////////////////
 
 // This function toggles the local user's video
-export const toggleVideo = (videoElement: HTMLVideoElement, state: boolean) => {
+export const toggleVideo = async (videoElement: HTMLVideoElement, state: boolean) => {
   if (state) {
+    if(!isVideoDeviceSelected){
+      await deviceSelector();
+      isVideoDeviceSelected = true;
+    }
     meetingSession.audioVideo.startLocalVideoTile();
   } else {
     meetingSession.audioVideo.stopLocalVideoTile();
